@@ -1,6 +1,8 @@
 # Release notes
 
-## Next version (not yet released)
+## 0.8.0 — beta: web pages, EPUB books, code files and password-protected Office files (October 2026)
+
+Install over any earlier beta; nothing needs uninstalling first.
 
 - **Web pages and books**: .html, .htm and .xhtml web pages, saved web archives (.mht, .mhtml) and EPUB books open in the viewer. Scripts, frames and anything stored outside the file are removed first and never run or load; pictures saved inside the file are shown. Books show their chapters in reading order with chapter navigation. Books protected with DRM are refused with a clear message.
 - **Source code and project files** open as plain text: .c .h .cs .java .js .vb .css .php .asp .aspx .razor .config .csproj .sln. Nothing in them runs.
