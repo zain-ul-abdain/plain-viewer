@@ -124,6 +124,7 @@ public static class TextFiles
             if (view.Text.Any(c => c == '\0' || (char.IsControl(c) && c != '\n' && c != '\r' && c != '\t' && c != '\f')))
                 throw new DocumentException("This file contains binary data, so its contents are not text. Open it with an application for its actual format.");
             view.Kind = extension is ".md" or ".markdown" ? "markdown" : "text";
+            if (view.Kind == "text") view.Spans = CodeHighlighter.Spans(view.Text, extension);
             if (view.Kind == "markdown") view.Blocks = MarkdownView.Parse(view.Text);
         }
         LocalFiles.ThrowIfChanged(stream, stamp);

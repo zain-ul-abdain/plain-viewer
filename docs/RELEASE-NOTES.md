@@ -1,5 +1,9 @@
 # Release notes
 
+## Next version (not yet released)
+
+- **Syntax colours** for code and data files: C, C#, Java, JavaScript, PHP, Visual Basic, CSS, web and project files, JSON, XML, YAML and INI files show comments, strings, keywords and numbers in colour (plain text in high contrast).
+
 ## 0.9.0 — beta: passwords for older Office and OpenDocument files (October 2026)
 
 Install over any earlier beta; nothing needs uninstalling first.

@@ -135,7 +135,9 @@ public partial class MainWindow : Window
         Measure(new Size(1100, 760)); Arrange(new Rect(0, 0, 1100, 760)); UpdateLayout();
         if (document.Kind == "markdown" && MarkdownDisplay.Document.Blocks.Count == 0) throw new InvalidOperationException("No Markdown blocks rendered.");
         if (document.Kind is "csv" or "lines" && CsvGrid.Items.Count != (rowStore is null ? document.Rows.Count : document.RowCount)) throw new InvalidOperationException("Row count mismatch.");
-        if (document.Kind == "text" && TextView.Text != document.Text) throw new InvalidOperationException("Text view mismatch.");
+        if (document.Kind == "text" && !Coloured && TextView.Text != document.Text) throw new InvalidOperationException("Text view mismatch.");
+        if (Coloured && new TextRange(MarkdownDisplay.Document.ContentStart, MarkdownDisplay.Document.ContentEnd).Text.Replace("\r\n", "\n").TrimEnd() != document.Text.Replace("\r\n", "\n").TrimEnd())
+            throw new InvalidOperationException("Coloured code view mismatch.");
         FindBox.Text = "Hello"; Find(false);
         if (storeSearch is not null)
         {
@@ -410,8 +412,59 @@ public partial class MainWindow : Window
             MarkdownRenderer.ResizeCode(flow, MarkdownDisplay.ActualWidth);
             MarkdownDisplay.Visibility = Visibility.Visible;
         }
+        else if (Coloured) ShowColouredCode();
         else { TextView.Text = document.Text; TextView.Visibility = Visibility.Visible; }
         lastQuery = ""; matchIndex = -1; ApplyZoom();
+    }
+    // Code, project and data files with syntax colours, shown read-only in the rich text view (search, copy and zoom
+    // work as for Markdown). High contrast keeps the system's own colours, so the plain text view is used there.
+    private bool Coloured => document is { Kind: "text", Spans.Count: > 0 } && !SystemParameters.HighContrast;
+    private void ShowColouredCode()
+    {
+        bool dark = IsDarkTheme();
+        Brush Colour(int kind) => (kind, dark) switch
+        {
+            (CodeHighlighter.Comment, false) => new SolidColorBrush(Color.FromRgb(0x00, 0x80, 0x00)), (CodeHighlighter.Comment, true) => new SolidColorBrush(Color.FromRgb(0x6A, 0x99, 0x55)),
+            (CodeHighlighter.String, false) => new SolidColorBrush(Color.FromRgb(0xA3, 0x15, 0x15)), (CodeHighlighter.String, true) => new SolidColorBrush(Color.FromRgb(0xCE, 0x91, 0x78)),
+            (CodeHighlighter.Keyword, false) => new SolidColorBrush(Color.FromRgb(0x00, 0x00, 0xFF)), (CodeHighlighter.Keyword, true) => new SolidColorBrush(Color.FromRgb(0x56, 0x9C, 0xD6)),
+            (CodeHighlighter.Number, false) => new SolidColorBrush(Color.FromRgb(0x09, 0x86, 0x58)), (CodeHighlighter.Number, true) => new SolidColorBrush(Color.FromRgb(0xB5, 0xCE, 0xA8)),
+            (CodeHighlighter.Markup, false) => new SolidColorBrush(Color.FromRgb(0x80, 0x00, 0x00)), (CodeHighlighter.Markup, true) => new SolidColorBrush(Color.FromRgb(0x56, 0x9C, 0xD6)),
+            (_, false) => new SolidColorBrush(Color.FromRgb(0x81, 0x1F, 0x3F)), (_, true) => new SolidColorBrush(Color.FromRgb(0x9C, 0xDC, 0xFE)),
+        };
+        string text = document!.Text;
+        var paragraph = new Paragraph { Margin = new Thickness(0) };
+        void Add(int start, int end, int kind)
+        {
+            for (int at = start; at < end;)
+            {
+                int line = text.IndexOf('\n', at, end - at);
+                int stop = line < 0 ? end : line;
+                if (stop > at)
+                {
+                    var run = new Run(text[at..stop].TrimEnd('\r'));
+                    if (kind > 0) { run.Foreground = Colour(kind); if (kind == CodeHighlighter.Comment) run.FontStyle = FontStyles.Italic; }
+                    paragraph.Inlines.Add(run);
+                }
+                if (line < 0) break;
+                paragraph.Inlines.Add(new LineBreak()); at = line + 1;
+            }
+        }
+        int position = 0;
+        var spans = document.Spans;
+        for (int i = 0; i + 2 < spans.Count; i += 3)
+        {
+            int start = spans[i], length = spans[i + 1];
+            if (start < position || start + length > text.Length) continue;
+            Add(position, start, 0); Add(start, start + length, spans[i + 2]); position = start + length;
+        }
+        Add(position, text.Length, 0);
+        var flow = MarkdownDisplay.Document;
+        flow.Blocks.Clear(); flow.PagePadding = new Thickness(12); flow.FontFamily = new FontFamily("Cascadia Mono, Consolas"); flow.FontSize = 15 * zoom;
+        // No wrapping, like the plain text view: the page is as wide as the longest line, and the view scrolls sideways.
+        int longest = text.Split('\n').Max(l => l.Length);
+        flow.PageWidth = Math.Max(400, longest * 9.5 * zoom + 48);
+        flow.Blocks.Add(paragraph);
+        MarkdownDisplay.Visibility = Visibility.Visible;
     }
     private void OpenLink(string address)
     {
@@ -500,7 +553,7 @@ public partial class MainWindow : Window
     }
     private static string ColumnName(int index) { string name = ""; for (int value = index + 1; value > 0; value = (value - 1) / 26) name = (char)('A' + (value - 1) % 26) + name; return name; }
     private void ApplyZoom() { TextView.FontSize = 16 * zoom; CsvGrid.FontSize = 14 * zoom; MarkdownDisplay.FontSize = 16 * zoom; if (document?.Kind == "markdown") MarkdownDisplay.Document.FontSize = 16 * zoom; ZoomButton.Content = $"{zoom:P0}"; }
-    private void ChangeZoom(double value) { zoom = Math.Clamp(value, 0.5, 3); if (document?.Kind == "markdown") Display(); else ApplyZoom(); }
+    private void ChangeZoom(double value) { zoom = Math.Clamp(value, 0.5, 3); if (document?.Kind == "markdown" || Coloured) Display(); else ApplyZoom(); }
     private void ZoomBy(int direction)
     {
         if (InWebPane) { WebPane.Zoom(direction > 0 ? "in" : direction < 0 ? "out" : 1.0); return; }

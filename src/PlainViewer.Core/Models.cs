@@ -13,6 +13,8 @@ public sealed class DocumentView
     public int RowCount { get; set; }
     public int Columns { get; set; }
     public List<ViewBlock> Blocks { get; set; } = [];
+    // Code, project and data files: syntax colours as (start, length, kind) triples over Text (CodeHighlighter).
+    public List<int> Spans { get; set; } = [];
     public List<SheetData> Sheets { get; set; } = [];
     public List<CellStyle> CellStyles { get; set; } = [];   // workbooks: entry 0 is the plain default style
 }

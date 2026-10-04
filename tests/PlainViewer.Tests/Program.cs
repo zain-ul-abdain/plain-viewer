@@ -596,6 +596,34 @@ try
         var sheet = WithPassword("viewer-test", () => LegacySpreadsheets.Load(Path.Combine(corpus, "ods", "password.ods")));
         Check(sheet.Kind == "sheet" && sheet.Sheets.Count > 0 && sheet.Sheets[0].Rows.Count > 0);
     });
+    Test("Syntax colours: kinds on known text, and spans in order inside the text for every code and data fixture", () =>
+    {
+        string Kind(string text, string extension, string piece)
+        {
+            var spans = CodeHighlighter.Spans(text, extension);
+            int at = text.IndexOf(piece, StringComparison.Ordinal);
+            for (int i = 0; i < spans.Count; i += 3) if (spans[i] == at && spans[i + 1] == piece.Length) return spans[i + 2] switch
+                { CodeHighlighter.Comment => "comment", CodeHighlighter.String => "string", CodeHighlighter.Keyword => "keyword", CodeHighlighter.Number => "number", CodeHighlighter.Markup => "markup", _ => "name" };
+            return "none";
+        }
+        Check(Kind("public static void Main() { var s = \"Hi\"; } // done", ".cs", "public") == "keyword");
+        Check(Kind("public static void Main() { var s = \"Hi\"; } // done", ".cs", "\"Hi\"") == "string");
+        Check(Kind("public static void Main() { var s = \"Hi\"; } // done", ".cs", "// done") == "comment");
+        Check(Kind("{ \"key\": \"value\", \"n\": 42 }", ".json", "\"key\"") == "name" && Kind("{ \"key\": \"value\", \"n\": 42 }", ".json", "\"value\"") == "string");
+        Check(Kind("<add key=\"Greeting\" /><!-- note -->", ".config", "<add") == "markup" && Kind("<add key=\"Greeting\" /><!-- note -->", ".config", "<!-- note -->") == "comment");
+        Check(Kind("Dim x As Integer ' note", ".vb", "' note") == "comment" && Kind("Dim x As Integer ' note", ".vb", "Dim") == "keyword");
+        Check(CodeHighlighter.Spans(new string('x', CodeHighlighter.MaxLength + 1), ".cs").Count == 0 && CodeHighlighter.Spans("plain", ".txt").Count == 0);
+        foreach (var file in Directory.GetFiles(Path.Combine(corpus, "code")).Concat(Directory.GetFiles(Path.Combine(corpus, "data"))))
+        {
+            if (file.EndsWith("binary-named.cs") || file.EndsWith("binary-named.json")) continue;
+            var view = TextFiles.Load(file);
+            for (int i = 0, end = 0; i < view.Spans.Count; i += 3)
+            {
+                Check(view.Spans[i] >= end && view.Spans[i + 1] > 0 && view.Spans[i] + view.Spans[i + 1] <= view.Text.Length);
+                end = view.Spans[i] + view.Spans[i + 1];
+            }
+        }
+    });
     Test("RC4 CryptoAPI header (Office 2003 and later .doc/.xls): parsed and the password checked (self-made header)", () =>
     {
         byte[] header = LegacyEncryption.CryptoApiHeaderForTests("Pässword 2003");
