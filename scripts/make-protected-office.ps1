@@ -25,6 +25,12 @@ $classic = @(
   @('docx\simple.docx', 'odt\password-odf12.odt', 'writer8'),
   @('xlsx\simple.xlsx', 'ods\password-odf12.ods', 'calc8'))
 
+# Excel's fixed password, "VelvetSweatshop", which Excel uses for workbooks protected without a password to open:
+# the viewer tries it before asking.
+$default = @(
+  @('xlsx\simple.xlsx', 'xls\password-default.xls', 'MS Excel 97'),
+  @('xlsx\simple.xlsx', 'xlsx\password-default.xlsx', 'Calc MS Excel 2007 XML'))
+
 # Saves the jobs in one LibreOffice run with a throwaway profile: macros off, links never updated, every web request
 # sent to a closed port, plus the extra settings given.
 function Save-Protected($jobs, $extra) {
@@ -62,3 +68,5 @@ function Save-Protected($jobs, $extra) {
 
 Save-Protected $current @()
 Save-Protected $classic @(, @('/org.openoffice.Office.Common/Save/ODF', 'DefaultVersion', '9'))
+$env:PLAINVIEWER_FIXTURE_PASSWORD = 'VelvetSweatshop'
+try { Save-Protected $default @() } finally { Remove-Item Env:PLAINVIEWER_FIXTURE_PASSWORD }

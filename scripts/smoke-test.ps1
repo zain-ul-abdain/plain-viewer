@@ -24,6 +24,8 @@ $fixtures += 'heic\simple.heic', 'heic\complex-rotated.heic', 'heic\large-12mp.h
 $fixtures += 'xlsx\password.xlsx', 'docx\password.docx', 'pptx\password.pptx', 'xls\password.xls', 'doc\password.doc',
   'odt\password-libreoffice.odt', 'ods\password.ods', 'odp\password.odp', 'odt\password-odf12.odt', 'ods\password-odf12.ods' | ForEach-Object { 'password=viewer-test|' + (Join-Path $repoRoot "tests\corpus\$_") }
 $fixtures += '!password=wrong|' + (Join-Path $repoRoot 'tests\corpus\xlsx\password.xlsx')
+# Saved with Excel's fixed password: open without any password.
+$fixtures += 'xls\password-default.xls', 'xlsx\password-default.xlsx' | ForEach-Object { Join-Path $repoRoot "tests\corpus\$_" }
 $code = Invoke-PlainViewer $App (@('--smoke-test') + $fixtures)
 if ($code -ne 0) { throw 'Native view/worker smoke test failed.' }
 

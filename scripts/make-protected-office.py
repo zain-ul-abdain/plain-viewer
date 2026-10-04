@@ -1,6 +1,8 @@
 # Saves password-protected copies of this corpus's own documents with the development LibreOffice, through UNO.
 # Run by scripts/make-protected-office.ps1 with LibreOffice's own Python; arguments: <pipe name> then pairs of
-# <source path> <target path> <filter name>. The password is the corpus's test password, "viewer-test".
+# <source path> <target path> <filter name>. The password is the corpus's test password, "viewer-test", unless
+# PLAINVIEWER_FIXTURE_PASSWORD gives another.
+import os
 import sys
 import time
 import uno
@@ -35,7 +37,7 @@ def main():
             document = desktop.loadComponentFromURL(uno.systemPathToFileUrl(source), "_blank", 0,
                                                     (prop("Hidden", True), prop("ReadOnly", True), prop("UpdateDocMode", 0)))
             document.storeToURL(uno.systemPathToFileUrl(target),
-                                (prop("FilterName", filter_name), prop("Password", "viewer-test"), prop("Overwrite", True)))
+                                (prop("FilterName", filter_name), prop("Password", os.environ.get("PLAINVIEWER_FIXTURE_PASSWORD", "viewer-test")), prop("Overwrite", True)))
             document.close(True)
             print("made    " + target)
     finally:

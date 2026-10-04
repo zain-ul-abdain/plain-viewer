@@ -38,10 +38,14 @@ public static class LegacyEncryption
     public static Key Open(ReadOnlySpan<byte> header, string kind)
     {
         if (header.Length < 4) throw Damaged(kind);
-        if (OfficeEncryption.Password is not { Length: > 0 } password) throw new PasswordException(OfficeEncryption.Required(kind), false);
+        string password = OfficeEncryption.PasswordOrDefault;    // Excel's fixed password first when none was typed
         int major = BinaryPrimitives.ReadUInt16LittleEndian(header), minor = BinaryPrimitives.ReadUInt16LittleEndian(header[2..]);
-        if (major == 1 && minor == 1) return Rc4Binary(header[4..], password, kind);
-        if (major is 2 or 3 or 4 && minor == 2) return Rc4CryptoApi(header[4..], password, kind);
+        try
+        {
+            if (major == 1 && minor == 1) return Rc4Binary(header[4..], password, kind);
+            if (major is 2 or 3 or 4 && minor == 2) return Rc4CryptoApi(header[4..], password, kind);
+        }
+        catch (PasswordException) when (!OfficeEncryption.PasswordGiven) { throw new PasswordException(OfficeEncryption.Required(kind), false); }
         throw Unsupported(kind);
     }
 

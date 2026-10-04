@@ -374,3 +374,10 @@ Suggested title: Preserve Markdown list starts and table alignment and scroll wi
 ## Agent 2, 5 October 2026 (later): 0.9.0 paused before publishing
 
 - Version 0.9.0 is on master (92c4f67) and GitHub Actions run 37237188585 was building its installer when Zain paused the session. Nothing is published; v0.8.0 is still the newest release. To finish: when the run has passed, download its PlainViewer-Setup-0.9.0-x64 artifact, check the .sha256, run `scripts/sandbox-test.ps1 -Installer <file>` (it now opens six protected files too), then create the v0.9.0 pre-release at 92c4f67 with the installer, .sha256, BETA.md and BETA-FEEDBACK.md (release text like v0.8.0's; notes in RELEASE-NOTES.md). If the upload drops, `gh release upload v0.9.0 <installer> --clobber` into the draft, compare GitHub's asset digest, then publish the draft.
+
+## Agent 2, 5 October 2026 (night): 0.9.0 published; work after it
+
+- **0.9.0 published** (Zain: "publish 0.9.0"): https://github.com/zain-ul-abdain/plain-viewer/releases/tag/v0.9.0 (pre-release, tag at 92c4f67). The installer's GitHub digest equals the Sandbox-tested build (aa19eb08…4cb9). Large uploads time out with `gh release create`; create a draft, `gh release upload --clobber` with retries, compare the digest, then `gh release edit --draft=false`.
+- **On master, not yet released** (Zain: "fix/implement all"): syntax colours, EMF/WMF pictures, SmartArt, more chart types, formula conditional formatting, .xlsb, EPUB fonts, the Agile HMAC check (a changed protected file is refused), and Excel's fixed password "VelvetSweatshop" tried before asking (new fixtures xls/xlsx password-default, made by `make-protected-office.ps1` with PLAINVIEWER_FIXTURE_PASSWORD).
+- **Not done, and why:** Excel 95 XOR obfuscation and OpenOffice.org Blowfish (no producer on this PC to make a test file; writing them blind risks wrong output); pictures in protected .ppt (LibreOffice cannot save a protected .ppt); MOBI/CHM (proprietary or HTML-help formats with active content; not started). ARM64 needs Zain's approval for the ARM64 .NET, LibreOffice and WebView2 downloads.
+

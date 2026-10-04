@@ -23,6 +23,12 @@ public static class OfficeEncryption
     public static bool IsEncrypted(byte[] bytes) =>
         CompoundFile.IsCompoundFile(bytes) && new CompoundFile(bytes, "file") is var file && file.Has("EncryptionInfo") && file.Has("EncryptedPackage");
 
+    // Excel encrypts a workbook whose structure is protected, but which has no password to open, with this fixed
+    // password ([MS-OFFCRYPTO] 2.3.6 and 2.3.7.1; also .xlsx "read-only" protection), so it is tried before asking.
+    public const string DefaultPassword = "VelvetSweatshop";
+    internal static string PasswordOrDefault => Password is { Length: > 0 } given ? given : DefaultPassword;
+    internal static bool PasswordGiven => Password is { Length: > 0 };
+
     public static string Required(string kind) => $"This {kind} is protected with a password. Enter its password to view it.";
     public static string Incorrect(string kind) => $"That password does not open this {kind}. Check it and try again; passwords are case-sensitive.";
 
@@ -33,16 +39,21 @@ public static class OfficeEncryption
         var info = file.Read(file.Find("EncryptionInfo") ?? throw Damaged(kind), kind);
         var package = file.Read(file.Find("EncryptedPackage") ?? throw Damaged(kind), kind);
         if (info.Length < 8 || package.Length < 8) throw Damaged(kind);
-        if (Password is not { Length: > 0 } password) throw new PasswordException(Required(kind), false);
+        string password = PasswordOrDefault;
         int major = BinaryPrimitives.ReadUInt16LittleEndian(info), minor = BinaryPrimitives.ReadUInt16LittleEndian(info.AsSpan(2));
         long size = BinaryPrimitives.ReadInt64LittleEndian(package);
         if (size < 0 || size > package.Length) throw Damaged(kind);
-        byte[] plain = (major, minor) switch
+        byte[] plain;
+        try
         {
-            (4, 4) => Agile(info, package, password, kind),
-            (2 or 3 or 4, 2) => Standard(info, package, password, kind),
-            _ => throw new DocumentException($"This {kind} uses a kind of password protection this viewer cannot open. Remove the password in Office, or ask the sender for an unprotected copy.")
-        };
+            plain = (major, minor) switch
+            {
+                (4, 4) => Agile(info, package, password, kind),
+                (2 or 3 or 4, 2) => Standard(info, package, password, kind),
+                _ => throw new DocumentException($"This {kind} uses a kind of password protection this viewer cannot open. Remove the password in Office, or ask the sender for an unprotected copy.")
+            };
+        }
+        catch (PasswordException) when (!PasswordGiven) { throw new PasswordException(Required(kind), false); }
         if (plain.Length < size) throw Damaged(kind);
         Array.Resize(ref plain, (int)size);
         if (!plain.AsSpan().StartsWith("PK\u0003\u0004"u8)) throw Damaged(kind);

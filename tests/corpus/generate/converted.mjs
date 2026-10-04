@@ -212,6 +212,10 @@ export async function generateConverted() {
     ["odp/password.odp", "odp", "password", { result: "error", error: "password" }, "LibreOffice's ODF encryption: Argon2id key, AES-256-GCM."],
     ["odt/password-odf12.odt", "odt", "password", { result: "error", error: "password" }, "ODF 1.2 encryption (each part on its own): PBKDF2 key, AES-256-CBC, SHA-256 checksum."],
     ["ods/password-odf12.ods", "ods", "password", { result: "error", error: "password" }, "ODF 1.2 encryption (each part on its own): PBKDF2 key, AES-256-CBC, SHA-256 checksum."],
+    // Saved with Excel's fixed password "VelvetSweatshop" (after 0.9.0), as Excel does for workbooks protected without a
+    // password to open: the viewer tries it first, so they open without asking.
+    ["xls/password-default.xls", "xls", "password", { result: "open", kind: "sheet", sheets: ["Hello"], cells: [{ sheet: "Hello", ref: "B1", text: "42" }] }, "RC4 encryption with Excel's fixed password: opens without asking."],
+    ["xlsx/password-default.xlsx", "xlsx", "password", { result: "open", kind: "sheet", sheets: ["Hello"], cells: [{ sheet: "Hello", ref: "B1", text: "42" }] }, "Agile encryption with Excel's fixed password: opens without asking."],
     // Windows metafile pictures (after 0.9.0), as LibreOffice stores them in .xls and .ods.
     ["xls/metafiles.xls", "xls", "complex", { result: "open", kind: "sheet", sheets: ["Sales", "Trend"], cells: [{ sheet: "Sales", ref: "A7", text: "Hello pictures" }], drawings: [{ sheet: "Sales", pictures: 2 }] },
       "The metafiles workbook as .xls: the pictures as EMF in the drawing group's picture store (zlib-compressed)."],
