@@ -370,3 +370,7 @@ Suggested title: Preserve Markdown list starts and table alignment and scroll wi
 - `Core/OpenDocumentEncryption.cs` + `Core/Argon2.cs` (Argon2id and BLAKE2b): wholesome ODF 1.4 (encrypted-package; IV, ciphertext and tag in the part itself, W3C layout) and ODF 1.2 per-part AES-CBC (checksum over the unpadded first kilobyte). Used by `ConvertedDocuments.Decrypted` and the .ods branch of `LegacySpreadsheets.Load`.
 - Fixtures: `scripts/make-protected-office.ps1` (+ .py, UNO through LibreOffice's Python); the ODF 1.2 pass sets DefaultVersion 9. LibreOffice sometimes crashes saving the .ods; rerun the script (it skips files that exist).
 - **Untested:** Office-made RC4 CryptoAPI .doc/.xls and any protected .ppt.
+
+## Agent 2, 5 October 2026 (later): 0.9.0 paused before publishing
+
+- Version 0.9.0 is on master (92c4f67) and GitHub Actions run 37237188585 was building its installer when Zain paused the session. Nothing is published; v0.8.0 is still the newest release. To finish: when the run has passed, download its PlainViewer-Setup-0.9.0-x64 artifact, check the .sha256, run `scripts/sandbox-test.ps1 -Installer <file>` (it now opens six protected files too), then create the v0.9.0 pre-release at 92c4f67 with the installer, .sha256, BETA.md and BETA-FEEDBACK.md (release text like v0.8.0's; notes in RELEASE-NOTES.md). If the upload drops, `gh release upload v0.9.0 <installer> --clobber` into the draft, compare GitHub's asset digest, then publish the draft.
