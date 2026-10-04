@@ -213,6 +213,11 @@ export async function generateConverted() {
     ["odp/password.odp", "odp", "password", { result: "error", error: "password" }, "LibreOffice's ODF encryption: Argon2id key, AES-256-GCM."],
     ["odt/password-odf12.odt", "odt", "password", { result: "error", error: "password" }, "ODF 1.2 encryption (each part on its own): PBKDF2 key, AES-256-CBC, SHA-256 checksum."],
     ["ods/password-odf12.ods", "ods", "password", { result: "error", error: "password" }, "ODF 1.2 encryption (each part on its own): PBKDF2 key, AES-256-CBC, SHA-256 checksum."],
+    // Windows metafile pictures (after 0.9.0), as LibreOffice stores them in .xls and .ods.
+    ["xls/metafiles.xls", "xls", "complex", { result: "open", kind: "sheet", sheets: ["Sales", "Trend"], cells: [{ sheet: "Sales", ref: "A7", text: "Hello pictures" }], drawings: [{ sheet: "Sales", pictures: 2 }] },
+      "The metafiles workbook as .xls: the pictures as EMF in the drawing group's picture store (zlib-compressed)."],
+    ["ods/metafiles.ods", "ods", "complex", { result: "open", kind: "sheet", sheets: ["Sales", "Trend"], cells: [{ sheet: "Sales", ref: "A7", text: "Hello pictures" }], drawings: [{ sheet: "Sales", pictures: 2 }] },
+      "The metafiles workbook as .ods: an EMF and a WMF, each with LibreOffice's PNG copy after it."],
     // Templates and the flat OpenDocument spreadsheet (0.8.0): shown as the document or workbook they hold.
     ["doc/template.dot", "dot", "simple", { result: "open", kind: "word", text: ["Hello from a Word document"] }, "Word 97-2003 template."],
     ["odt/template.ott", "ott", "simple", { result: "open", kind: "word", text: ["Hello from a Word document"] }, "OpenDocument text template: the private copy is labelled as a document."],

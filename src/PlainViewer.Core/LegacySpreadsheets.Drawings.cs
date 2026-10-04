@@ -441,7 +441,31 @@ public static partial class LegacySpreadsheets
                 case 0xF01F:                                                                       // DIB: a BMP without its file header
                     p += (instance == 0x7A9 ? 32 : 16) + 1;
                     return p < end ? (Bitmap(d.AsSpan(p, end - p)), false) : (null, false);
-                default: return (null, true);                                                     // EMF, WMF, PICT, TIFF
+                case 0xF01A or 0xF01B:                                                            // EMF, WMF: drawn into a PNG
+                    {
+                        p += (instance is 0x3D5 or 0x217 ? 32 : 16);
+                        if (p + 34 > end) return (null, true);
+                        int size = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(p));
+                        long widthEmu = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(p + 20)), heightEmu = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(p + 24));
+                        int saved = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(p + 28));
+                        bool compressed = d[p + 32] == 0;
+                        p += 34;
+                        if (size is <= 0 or > 64 * 1024 * 1024 || saved <= 0 || p + saved > end) return (null, true);
+                        byte[] metafile;
+                        if (compressed)
+                        {
+                            try
+                            {
+                                using var zlib = new System.IO.Compression.ZLibStream(new MemoryStream(d, p, saved), System.IO.Compression.CompressionMode.Decompress);
+                                metafile = new byte[size]; zlib.ReadAtLeast(metafile, size, throwOnEndOfStream: false);
+                            }
+                            catch (InvalidDataException) { return (null, true); }
+                        }
+                        else metafile = d[p..(p + saved)];
+                        var png = Metafiles.ToPng(metafile, (int)(widthEmu / 360), (int)(heightEmu / 360));   // EMU to hundredths of a millimetre
+                        return png is null ? (null, true) : (png, false);
+                    }
+                default: return (null, true);                                                     // PICT, TIFF
             }
             return p < end ? (d[p..end], false) : (null, false);
         }

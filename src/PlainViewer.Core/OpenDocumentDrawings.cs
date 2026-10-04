@@ -64,6 +64,7 @@ internal static class OpenDocumentDrawings
                 using (var stream = entry.Open()) stream.ReadExactly(bytes);
             }
             if (bytes is null) continue;
+            if (Metafiles.IsMetafile(bytes) && Metafiles.ToPng(bytes) is { } drawn) bytes = drawn;   // EMF and WMF, drawn into a PNG
             var picture = ImageFiles.Identify(bytes);
             // LibreOffice stores an SVG picture with a PNG copy after it: the first picture the page can show is used.
             if (picture is null || picture.Format is "SVG" or "HEIF") { unsupported = true; continue; }

@@ -2,6 +2,7 @@
 
 ## Next version (not yet released)
 
+- **EMF and WMF pictures** in spreadsheets (.xlsx, .xls and .ods) are now shown: logos and drawings pasted from other programs no longer go missing.
 - **Syntax colours** for code and data files: C, C#, Java, JavaScript, PHP, Visual Basic, CSS, web and project files, JSON, XML, YAML and INI files show comments, strings, keywords and numbers in colour (plain text in high contrast).
 
 ## 0.9.0 — beta: passwords for older Office and OpenDocument files (October 2026)

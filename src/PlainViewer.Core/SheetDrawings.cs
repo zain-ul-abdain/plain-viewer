@@ -122,6 +122,8 @@ internal static class SheetDrawings
     // media-<sheet>-<n>.<type>, the only names the app serves. Formats the page cannot show are counted, not added.
     public static void AddPicture(byte[] bytes, SheetPicture placed, string? folder, int sheet, Budget budget, List<SheetPicture> result)
     {
+        // EMF and WMF pictures are drawn into a PNG in the worker (Metafiles).
+        if (Metafiles.IsMetafile(bytes)) { if (Metafiles.ToPng(bytes) is { } drawn) bytes = drawn; else { budget.Unsupported++; return; } }
         if (!Fits(bytes.Length, budget)) return;
         var picture = ImageFiles.Identify(bytes);
         if (picture is null || picture.Format is "SVG" or "HEIF" || (long)picture.Width * picture.Height > ImageFiles.PixelLimit) { budget.Unsupported++; return; }
@@ -135,7 +137,7 @@ internal static class SheetDrawings
     // The workbook's notices about pictures that are not shown.
     public static IEnumerable<string> Notes(Budget budget)
     {
-        if (budget.Unsupported > 0) yield return $"{budget.Unsupported} picture{(budget.Unsupported == 1 ? " is" : "s are")} in a format this viewer cannot show (for example EMF or WMF) and {(budget.Unsupported == 1 ? "is" : "are")} left out.";
+        if (budget.Unsupported > 0) yield return $"{budget.Unsupported} picture{(budget.Unsupported == 1 ? " is" : "s are")} in a format this viewer cannot show (for example PICT, or a damaged EMF or WMF) and {(budget.Unsupported == 1 ? "is" : "are")} left out.";
         if (budget.Skipped > 0) yield return $"{budget.Skipped} picture{(budget.Skipped == 1 ? " is" : "s are")} left out because the workbook's pictures are larger than this viewer shows at once.";
         if (budget.Linked > 0) yield return $"{budget.Linked} linked picture{(budget.Linked == 1 ? " is" : "s are")} stored outside this file and {(budget.Linked == 1 ? "is" : "are")} not loaded.";
     }

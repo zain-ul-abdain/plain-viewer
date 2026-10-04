@@ -34,11 +34,16 @@ $jobs = @(
   # Templates and the flat OpenDocument spreadsheet (0.8.0); the third item is LibreOffice's export filter.
   @('docx\simple.docx', 'doc\template.dot', 'MS Word 97 Vorlage'), @('docx\simple.docx', 'odt\template.ott', 'writer8_template'),
   @('xlsx\complex.xlsx', 'xls\template.xlt', 'MS Excel 97 Vorlage/Template'), @('xlsx\complex.xlsx', 'ods\template.ots', 'calc8_template'),
-  @('xlsx\complex.xlsx', 'ods\complex.fods', 'OpenDocument Spreadsheet Flat XML'), @('xlsx\styles.xlsx', 'ods\styles.fods', 'OpenDocument Spreadsheet Flat XML'))
+  @('xlsx\complex.xlsx', 'ods\complex.fods', 'OpenDocument Spreadsheet Flat XML'), @('xlsx\styles.xlsx', 'ods\styles.fods', 'OpenDocument Spreadsheet Flat XML'),
+  # Windows metafiles drawn by LibreOffice from the corpus's SVG picture (after 0.9.0); the corpus generator puts the
+  # EMF into xlsx\metafiles.xlsx, whose .xls and .ods copies come from the line after.
+  @('images\complex.svg', 'media\drawing.emf', 'draw_emf_Export'), @('images\complex.svg', 'media\drawing.wmf', 'draw_wmf_Export'),
+  @('xlsx\metafiles.xlsx', 'xls\metafiles.xls'), @('xlsx\metafiles.xlsx', 'ods\metafiles.ods'))
 try {
   foreach ($job in $jobs) {
     $target = Join-Path $corpus $job[1]
     if ((Test-Path $target) -and -not $Force) { Write-Output "kept    $($job[1])"; continue }
+    if (-not (Test-Path (Join-Path $corpus $job[0]))) { Write-Output "skipped $($job[1]): run the corpus generator first, then this script again"; continue }
     $format = [IO.Path]::GetExtension($target).TrimStart('.')
     $out = Join-Path $work 'out'; New-Item -ItemType Directory -Force $out, (Split-Path $target) | Out-Null
     $process = Start-Process $soffice -Wait -PassThru -WindowStyle Hidden -ArgumentList @('--headless', '--norestore', '--nologo', '--nolockcheck',

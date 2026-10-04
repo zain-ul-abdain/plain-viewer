@@ -483,6 +483,31 @@ export async function generateXlsx({ large }) {
       rules: SAFE_RULES, notes: "Two linked pictures (web address and network share) must never be fetched; the notice says they are not loaded." });
   }
 
+  // Windows metafiles (after 0.9.0): the pictures workbook with its picture replaced by an EMF and a second picture, a
+  // WMF, both drawn by LibreOffice from images/complex.svg (scripts/make-legacy-office.ps1 makes them first).
+  if (fs.existsSync(path.join(CORPUS, "media", "drawing.emf")) && fs.existsSync(path.join(CORPUS, "media", "drawing.wmf"))) {
+    const zip = await JSZip.loadAsync(fs.readFileSync(path.join(CORPUS, "xlsx", "drawings.xlsx")));
+    const drawingPath = Object.keys(zip.files).find(n => /^xl\/drawings\/drawing\d\.xml$/.test(n));
+    const relsPath = drawingPath.replace("drawings/", "drawings/_rels/") + ".rels";
+    const media = Object.keys(zip.files).find(n => /^xl\/media\/image\d+\.png$/.test(n));
+    zip.remove(media);
+    zip.file(media.replace(/\.png$/, ".emf"), fs.readFileSync(path.join(CORPUS, "media", "drawing.emf")));
+    zip.file("xl/media/drawing2.wmf", fs.readFileSync(path.join(CORPUS, "media", "drawing.wmf")));
+    const name = media.split("/").pop();
+    zip.file(relsPath, (await zip.file(relsPath).async("string")).replace(name, name.replace(/\.png$/, ".emf"))
+      .replace("</Relationships>", `<Relationship Id="rIdWmf" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/drawing2.wmf"/></Relationships>`));
+    const pic = `<xdr:oneCellAnchor><xdr:from><xdr:col>1</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>30</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from><xdr:ext cx="1905000" cy="1190625"/>` +
+      `<xdr:pic><xdr:nvPicPr><xdr:cNvPr id="40" name="WMF picture"/><xdr:cNvPicPr/></xdr:nvPicPr><xdr:blipFill><a:blip xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:embed="rIdWmf"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill>` +
+      `<xdr:spPr><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic><xdr:clientData/></xdr:oneCellAnchor>`;
+    zip.file(drawingPath, (await zip.file(drawingPath).async("string")).replace("</xdr:wsDr>", pic + "</xdr:wsDr>"));
+    zip.file("[Content_Types].xml", (await zip.file("[Content_Types].xml").async("string")).replace("<Default ",
+      '<Default Extension="emf" ContentType="image/x-emf"/><Default Extension="wmf" ContentType="image/x-wmf"/><Default '));
+    write("xlsx/metafiles.xlsx", await stable(await zip.generateAsync({ type: "nodebuffer" })));
+    record({ id: "xlsx-metafiles", file: "xlsx/metafiles.xlsx", format: "xlsx", category: "complex", producer: `${producer}, EMF and WMF pictures by LibreOffice 26.2.6 from images/complex.svg, placed with JSZip`, licence,
+      expect: { result: "open", sheets: ["Sales", "Trend"], text: ["Hello pictures"], drawings: [{ sheet: "Sales", pictures: 2 }] }, rules: SAFE_RULES,
+      notes: "An EMF and a WMF picture: both are drawn into PNGs by the worker and shown." });
+  }
+
   if (large) {
     const target = path.join(CORPUS, "generated", "xlsx-large-500k-rows.xlsx");
     fs.mkdirSync(path.dirname(target), { recursive: true });
