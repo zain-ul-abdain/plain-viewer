@@ -124,7 +124,8 @@ export async function officeVariants({ format, folder, simple, complex, mainPart
   const rec = (name, category, expect, extra = {}, extension = name === "macro" ? macroExtension : format) => record({ id: `${format}-${name}`, file: `${folder}/${name}.${extension}`, format: extension, category, producer, licence, expect, rules: SAFE_RULES, ...extra });
 
   write(`${folder}/password.${format}`, officeCrypto.encrypt(simple, { password: "viewer-test" }));
-  rec("password", "password", { result: "error", error: "password" }, { password: "viewer-test", producer: `${producer}, encrypted with officecrypto-tool ${packageVersion("officecrypto-tool")}` });
+  rec("password", "password", { result: "error", error: "password" }, { password: "viewer-test", producer: `${producer}, encrypted with officecrypto-tool ${packageVersion("officecrypto-tool")}`,
+    notes: "Without a password: asks for it. Opens with the test password viewer-test (core and smoke tests); a wrong one is refused." });
 
   const container = CFB.utils.cfb_new();
   CFB.utils.cfb_add(container, format === "docx" ? "WordDocument" : "PowerPoint Document", Buffer.from("Container only; not a real binary document."));

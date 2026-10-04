@@ -16,14 +16,15 @@ internal static class WorkerClient
     public const string Stopped = "The document worker stopped unexpectedly, possibly because the file needs more memory than the viewer allows for one document. Try again, or try a smaller file.";
 
     // Rows of CSV and large text files are written to a RowStore in `work`, which the caller deletes when done.
-    public static Task<DocumentView> Load(string path, string encoding, string delimiter, string work, CancellationToken cancellation) =>
-        Run([path, encoding, delimiter, work], cancellation);
+    // password: what the user typed for a protected file, or null. It reaches the worker on its standard input only.
+    public static Task<DocumentView> Load(string path, string encoding, string delimiter, string work, CancellationToken cancellation, string? password = null) =>
+        Run([path, encoding, delimiter, work], cancellation, password);
 
     // Validates a Word/PowerPoint package in the worker and writes a sanitised copy to `output` for conversion.
-    public static Task<DocumentView> PrepareOffice(string path, string output, CancellationToken cancellation) =>
-        Run([path, "--prepare-office", output], cancellation);
+    public static Task<DocumentView> PrepareOffice(string path, string output, CancellationToken cancellation, string? password = null) =>
+        Run([path, "--prepare-office", output], cancellation, password);
 
-    private static async Task<DocumentView> Run(string[] arguments, CancellationToken cancellation)
+    private static async Task<DocumentView> Run(string[] arguments, CancellationToken cancellation, string? password = null)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation); timeout.CancelAfter(Timeout);
         var start = new ProcessStartInfo { UseShellExecute = false, CreateNoWindow = true, RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true, StandardOutputEncoding = Encoding.UTF8 };
@@ -42,7 +43,9 @@ internal static class WorkerClient
         try
         {
             using var job = new WorkerJob(process);
-            await process.StandardInput.WriteLineAsync("START"); process.StandardInput.Close();
+            await process.StandardInput.WriteLineAsync("START");
+            if (password is not null) await process.StandardInput.WriteLineAsync("PASSWORD " + Convert.ToBase64String(Encoding.UTF8.GetBytes(password)));
+            process.StandardInput.Close();
             var errorDrain = process.StandardError.ReadToEndAsync(timeout.Token);
             var text = new StringBuilder(); char[] buffer = new char[8192]; int count;
             while ((count = await process.StandardOutput.ReadAsync(buffer, timeout.Token)) != 0)
@@ -52,7 +55,7 @@ internal static class WorkerClient
             WorkerResponse? response;
             try { response = JsonSerializer.Deserialize<WorkerResponse>(text.ToString()); }
             catch (JsonException) { throw new DocumentException(Stopped); }
-            if (response?.Error is { } error) throw new DocumentException(error);
+            if (response?.Error is { } error) throw response.Password is { } state ? new PasswordException(error, state == "incorrect") : new DocumentException(error);
             return response?.Document ?? throw new DocumentException(Stopped);
         }
         catch (OperationCanceledException) when (!cancellation.IsCancellationRequested)

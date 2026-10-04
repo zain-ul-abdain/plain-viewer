@@ -34,8 +34,9 @@ public sealed class ViewRun
     public bool Code { get; set; }
     public string? Link { get; set; }
 }
-public sealed record WorkerResponse(DocumentView? Document, string? Error);
-public sealed class DocumentException(string message) : Exception(message);
+// Password: "required" or "incorrect" when the file needs its password (Error says so in plain words).
+public sealed record WorkerResponse(DocumentView? Document, string? Error, string? Password = null);
+public class DocumentException(string message) : Exception(message);
 public static class LinkPolicy
 {
     public static bool CanOpen(string? address) => address is not null &&

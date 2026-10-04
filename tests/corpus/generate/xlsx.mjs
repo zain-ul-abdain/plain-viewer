@@ -295,7 +295,7 @@ export async function generateXlsx({ large }) {
     record({ id: "xlsx-password", file: "xlsx/password.xlsx", format: "xlsx", category: "password",
       producer: `${producer}, encrypted with officecrypto-tool ${packageVersion("officecrypto-tool")}`, licence, password: "viewer-test",
       expect: { result: "error", error: "password" }, rules: SAFE_RULES,
-      notes: "v1 only needs a clear explanation for protected Office files; entering a password is not required." });
+      notes: "Without a password: asks for it. Opens with the test password viewer-test (core, worker and smoke tests); a wrong one is refused." });
   }
 
   // An older binary container (not encrypted) saved with an .xlsx name.

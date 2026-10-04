@@ -6,6 +6,9 @@ using PlainViewer.Core;
 Console.InputEncoding = Encoding.UTF8; Console.OutputEncoding = new UTF8Encoding(false);
 // Parent assigns a Job Object before releasing this handshake.
 if (Console.ReadLine() != "START") return 2;
+// A password the user typed for this file may follow, base64-encoded, on the next line (never on the command line).
+if (Console.ReadLine() is { } line && line.StartsWith("PASSWORD ", StringComparison.Ordinal))
+    try { OfficeEncryption.Password = Encoding.UTF8.GetString(Convert.FromBase64String(line[9..])); } catch (FormatException) { }
 WorkerResponse response;
 try
 {
@@ -26,6 +29,7 @@ try
         : TextFiles.Load(args[0], args.ElementAtOrDefault(1) ?? "Auto", args.ElementAtOrDefault(2) ?? "Auto", args.ElementAtOrDefault(3));
     response = new WorkerResponse(document, null);
 }
+catch (PasswordException ex) { response = new(null, ex.Message, ex.Incorrect ? "incorrect" : "required"); }
 catch (DocumentException ex) { response = new(null, ex.Message); }
 catch (InvalidDataException) { response = new(null, "This file is damaged or incomplete, so it cannot be shown. Try another copy of the file."); }
 catch (System.Xml.XmlException) { response = new(null, "This file is damaged or incomplete, so it cannot be shown. Try another copy of the file."); }

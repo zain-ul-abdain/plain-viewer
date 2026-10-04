@@ -40,10 +40,17 @@ public partial class App : Application
         if (e.Args.FirstOrDefault() == "--smoke-test")
         {
             ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            PlainViewer.App.MainWindow.TestMode = true;
             try
             {
-                foreach (var file in e.Args.Skip(1))
+                foreach (var argument in e.Args.Skip(1))
                 {
+                    // "password=<test password>|<file>" opens a protected test file with that password.
+                    string file = argument;
+                    PlainViewer.App.MainWindow.TestPassword = null;
+                    int bar = argument.IndexOf('|');
+                    if (argument.TrimStart('!').StartsWith("password=") && bar > 0)
+                    { PlainViewer.App.MainWindow.TestPassword = argument[(argument.IndexOf('=') + 1)..bar]; file = (argument.StartsWith('!') ? "!" : "") + argument[(bar + 1)..]; }
                     var preview = new MainWindow();
                     // A leading "!" means the file must be refused with a clear message (damaged, hostile, protected...).
                     if (file.StartsWith('!'))

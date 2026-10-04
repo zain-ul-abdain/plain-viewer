@@ -513,6 +513,38 @@ try
             Check(siblings.SequenceEqual(Directory.GetFiles(Path.GetDirectoryName(path)!)));
         });
     }
+    // Password-protected Office files (Agile encryption, made by officecrypto-tool with the test password "viewer-test").
+    T WithPassword<T>(string? password, Func<T> open) { OfficeEncryption.Password = password; try { return open(); } finally { OfficeEncryption.Password = null; } }
+    Test("Protected workbook: asks, refuses a wrong password, opens with the right one", () =>
+    {
+        string path = Path.Combine(corpus, "xlsx", "password.xlsx");
+        var asked = Throws<PasswordException>(() => Spreadsheets.Load(path));
+        Check(!asked.Incorrect && asked.Message.Contains("Enter its password"));
+        Check(Throws<PasswordException>(() => WithPassword("Viewer-test", () => Spreadsheets.Load(path))).Incorrect);
+        var opened = WithPassword("viewer-test", () => Spreadsheets.Load(path));
+        var plain = Spreadsheets.Load(Path.Combine(corpus, "xlsx", "simple.xlsx"));
+        Check(opened.Kind == "sheet" && opened.Sheets.Count == plain.Sheets.Count && opened.Sheets[0].Rows[0].SequenceEqual(plain.Sheets[0].Rows[0]));
+    });
+    foreach (var name in new[] { "docx/password.docx", "pptx/password.pptx" })
+        Test("Protected Office file opens with its password: " + name, () =>
+        {
+            string path = Path.Combine(corpus, name.Replace('/', Path.DirectorySeparatorChar));
+            string output = Path.Combine(root, Guid.NewGuid().ToString("N"), "document" + Path.GetExtension(path));
+            byte[] before = SHA256.HashData(File.ReadAllBytes(path));
+            Check(!Throws<PasswordException>(() => OfficePackages.Prepare(path, output)).Incorrect && !File.Exists(output));
+            Check(Throws<PasswordException>(() => WithPassword("wrong", () => OfficePackages.Prepare(path, output))).Incorrect && !File.Exists(output));
+            var view = WithPassword("viewer-test", () => OfficePackages.Prepare(path, output));
+            using var zip = new ZipArchive(File.OpenRead(output));
+            Check(zip.GetEntry(name.StartsWith("docx") ? "word/document.xml" : "ppt/presentation.xml") is not null);
+            Check(before.SequenceEqual(SHA256.HashData(File.ReadAllBytes(path))));
+        });
+    Test("Standard (Office 2007) encryption round trip", () =>
+    {
+        byte[] plain = File.ReadAllBytes(Path.Combine(corpus, "xlsx", "simple.xlsx"));
+        var (info, package) = OfficeEncryption.EncryptStandardForTests(plain, "Pässword 2007");
+        Check(OfficeEncryption.DecryptStreamsForTests(info, package, "Pässword 2007", "workbook").SequenceEqual(plain));
+        Check(Throws<PasswordException>(() => OfficeEncryption.DecryptStreamsForTests(info, package, "password 2007", "workbook")).Incorrect);
+    });
     Test("Web references stay inside the book", () =>
     {
         Check(WebDocuments.Resolve("OEBPS/text/", "../images/a.png") == "OEBPS/images/a.png");

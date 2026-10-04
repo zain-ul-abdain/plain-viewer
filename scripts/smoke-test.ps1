@@ -19,6 +19,10 @@ $fixtures = @('simple.txt','complex.txt','simple.csv','complex.csv','simple.md',
 $heicCodecs = [bool](Get-AppxPackage -Name Microsoft.HEIFImageExtension -ErrorAction SilentlyContinue) -and [bool](Get-AppxPackage -Name Microsoft.HEVCVideoExtension* -ErrorAction SilentlyContinue)
 if (-not $heicCodecs) { Write-Output 'HEIC codecs are not installed: HEIC photos are expected to be refused with a message.' }
 $fixtures += 'heic\simple.heic', 'heic\complex-rotated.heic', 'heic\large-12mp.heic' | ForEach-Object { $(if ($heicCodecs) { '' } else { '!' }) + (Join-Path $repoRoot "tests\corpus\$_") }
+# Password-protected Office files: opened with their test password (no dialog in the smoke test), and refused with a
+# clear message when the password is wrong (the app asks again, and the smoke test gives none the second time).
+$fixtures += 'xlsx\password.xlsx', 'docx\password.docx', 'pptx\password.pptx' | ForEach-Object { 'password=viewer-test|' + (Join-Path $repoRoot "tests\corpus\$_") }
+$fixtures += '!password=wrong|' + (Join-Path $repoRoot 'tests\corpus\xlsx\password.xlsx')
 $code = Invoke-PlainViewer $App (@('--smoke-test') + $fixtures)
 if ($code -ne 0) { throw 'Native view/worker smoke test failed.' }
 

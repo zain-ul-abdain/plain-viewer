@@ -57,10 +57,18 @@ public static class OfficePackages
         if (length > SizeLimit) throw new DocumentException($"This {kind} is larger than 256 MB, which is more than this viewer can open safely.");
         byte[] head = new byte[Math.Min(length, 65536)];
         stream.ReadExactly(head); stream.Position = 0;
+        // Password protected: decrypted in memory with the password the user typed (OfficeEncryption); only the
+        // cleaned copy for the converter is written, to the private work folder, as for any other document.
+        Stream package = stream;
         if (head.AsSpan().StartsWith(new byte[] { 0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1 }))
-            throw new DocumentException(head.AsSpan().IndexOf(Encoding.Unicode.GetBytes("EncryptionInfo")) >= 0
-                ? $"This {kind} is protected with a password. Password-protected Office files cannot be opened in this version. Remove the password in Office, or ask the sender for an unprotected copy."
-                : $"This looks like an older Office file ({(word ? ".doc" : ".ppt")}) saved with a {extension} name. Rename it to end in {(word ? ".doc" : ".ppt")} to view it.");
+        {
+            if (head.AsSpan().IndexOf(Encoding.Unicode.GetBytes("EncryptionInfo")) < 0)
+                throw new DocumentException($"This looks like an older Office file ({(word ? ".doc" : ".ppt")}) saved with a {extension} name. Rename it to end in {(word ? ".doc" : ".ppt")} to view it.");
+            var encrypted = new byte[length]; stream.ReadExactly(encrypted); stream.Position = 0;
+            try { package = new MemoryStream(OfficeEncryption.Decrypt(encrypted, kind), false); }
+            catch (InvalidDataException) { throw new DocumentException($"This {kind} is damaged or incomplete, so it cannot be shown. Try another copy of the file."); }
+            head = new byte[8]; package.ReadExactly(head); package.Position = 0;
+        }
         if (!head.AsSpan().StartsWith("PK\u0003\u0004"u8))
             throw new DocumentException($"This file is named {extension}, but its contents are not a {kind}. Open it with an application for its actual format.");
 
@@ -69,7 +77,7 @@ public static class OfficePackages
         bool ownsOutput = false;
         try
         {
-            using var zip = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: true);
+            using var zip = new ZipArchive(package, ZipArchiveMode.Read, leaveOpen: true);
             ArchiveSafety.Validate(zip, maximumBytes: 2L * 1024 * 1024 * 1024, maximumEntries: 10000, maximumRatio: 500);
             if (zip.GetEntry(word ? "word/document.xml" : "ppt/presentation.xml") is null)
                 throw new DocumentException($"This file is named {extension}, but its contents are not a {kind}. Open it with an application for its actual format.");

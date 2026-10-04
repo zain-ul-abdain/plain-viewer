@@ -159,6 +159,21 @@ await Test("The real worker explains a file that has disappeared", async () =>
     string message = await Refused(() => WorkerClient.Load(Path.Combine(root, "missing.txt"), "Auto", "Auto", root, default));
     Check(message.Contains("moved or deleted", StringComparison.Ordinal), message);
 });
+await Test("The real worker asks for a protected workbook's password and opens it with the right one", async () =>
+{
+    WorkerClient.CommandForTests = [host, realWorker];
+    string path = Path.Combine(repo, "tests", "corpus", "xlsx", "password.xlsx");
+    async Task<PasswordException?> Asked(string? password)
+    {
+        try { await WorkerClient.Load(path, "Auto", "Auto", root, default, password); return null; }
+        catch (PasswordException ex) { return ex; }
+    }
+    Check(await Asked(null) is { Incorrect: false }, "no password: not asked");
+    Check(await Asked("not it\nPASSWORD dmlld2VyLXRlc3Q=") is { Incorrect: true }, "a password with a line break must stay one password");
+    Check(await Asked("viewer-test") is null, "the right password did not open it");
+    var view = await WorkerClient.Load(path, "Auto", "Auto", root, default, "viewer-test");
+    Check(view.Kind == "sheet" && view.Sheets.Count > 0, "no sheets");
+});
 
 try { Directory.Delete(root, true); } catch (IOException) { }
 Console.WriteLine($"Worker failure tests: {passed} passed, {failed} failed.");

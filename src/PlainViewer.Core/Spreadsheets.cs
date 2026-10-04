@@ -65,17 +65,24 @@ public static class Spreadsheets
         if (length > SizeLimit) throw new DocumentException("This workbook is larger than 256 MB, which is more than this viewer can open safely.");
         byte[] head = new byte[Math.Min(length, 65536)];
         stream.ReadExactly(head); stream.Position = 0;
+        // Password protected: decrypted in memory with the password the user typed (OfficeEncryption).
+        Stream package = stream;
         if (head.AsSpan().StartsWith(new byte[] { 0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1 }))
-            throw new DocumentException(head.AsSpan().IndexOf(Encoding.Unicode.GetBytes("EncryptionInfo")) >= 0
-                ? "This workbook is protected with a password. Password-protected Excel files cannot be opened in this version. Remove the password in Excel, or ask the sender for an unprotected copy."
-                : $"This looks like an older Excel file (.xls) saved with a {extension} name. Rename it to end in .xls to view it.");
+        {
+            if (head.AsSpan().IndexOf(Encoding.Unicode.GetBytes("EncryptionInfo")) < 0)
+                throw new DocumentException($"This looks like an older Excel file (.xls) saved with a {extension} name. Rename it to end in .xls to view it.");
+            var encrypted = new byte[length]; stream.ReadExactly(encrypted); stream.Position = 0;
+            try { package = new MemoryStream(OfficeEncryption.Decrypt(encrypted, "workbook"), false); }
+            catch (InvalidDataException) { throw new DocumentException("This workbook is damaged or incomplete, so it cannot be shown. Try another copy of the file."); }
+            head = new byte[8]; package.ReadExactly(head); package.Position = 0;
+        }
         if (!head.AsSpan().StartsWith("PK\u0003\u0004"u8))
             throw new DocumentException($"This file is named {extension}, but its contents are not an Excel workbook. Open it with an application for its actual format.");
 
         DocumentView view;
         try
         {
-            using var zip = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: true);
+            using var zip = new ZipArchive(package, ZipArchiveMode.Read, leaveOpen: true);
             // Sheet XML compresses well, so the total is generous; the ratio check still stops ZIP bombs.
             ArchiveSafety.Validate(zip, maximumBytes: 4L * 1024 * 1024 * 1024, maximumEntries: 10000, maximumRatio: 500);
             view = new Reader(zip, culture, storeFolder).Read();

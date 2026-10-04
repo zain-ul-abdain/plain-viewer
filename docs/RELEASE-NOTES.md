@@ -5,6 +5,7 @@
 - **Web pages and books**: .html, .htm and .xhtml web pages, saved web archives (.mht, .mhtml) and EPUB books open in the viewer. Scripts, frames and anything stored outside the file are removed first and never run or load; pictures saved inside the file are shown. Books show their chapters in reading order with chapter navigation. Books protected with DRM are refused with a clear message.
 - **Source code and project files** open as plain text: .c .h .cs .java .js .vb .css .php .asp .aspx .razor .config .csproj .sln. Nothing in them runs.
 - **Tab-separated files** (.tsv) open in the grid.
+- **Password-protected Word, Excel and PowerPoint files** open: Plain Viewer asks for the password and opens the file with it. The password is used only to open the file and is never saved. (Older .doc, .xls and .ppt files and OpenDocument files with passwords still cannot be opened.)
 - **Older templates and flat spreadsheets**: Word and Excel 97–2003 templates (.dot, .xlt), OpenDocument templates (.ott, .ots) and flat OpenDocument spreadsheets (.fods).
 
 ## 0.7.0 — beta: shapes, chart labels and patterned fills in spreadsheets; safer links (October 2026)

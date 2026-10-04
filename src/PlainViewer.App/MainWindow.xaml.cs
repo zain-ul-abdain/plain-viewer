@@ -257,7 +257,8 @@ public partial class MainWindow : Window
             else
             {
                 work = OfficeConverter.NewWorkFolder();
-                loaded = await WorkerClient.Load(currentPath, Choice(EncodingChoice), Choice(DelimiterChoice), work, operation.Token);
+                string folder = work, opening = currentPath;
+                loaded = await WithPassword(password => WorkerClient.Load(opening, Choice(EncodingChoice), Choice(DelimiterChoice), folder, operation.Token, password));
                 // Store names and counts come from the worker, so only the names it may use are accepted, and each
                 // store must hold exactly the rows the worker reported.
                 // Web pages and books: the parts the worker collected, for the page to clean and show (Assets/web).
@@ -514,7 +515,7 @@ public partial class MainWindow : Window
     private void NextPage(object s, RoutedEventArgs e) => WebPane.Step(1);
     private async Task<DocumentView> LoadOffice(string path, CancellationToken cancellation)
     {
-        var (prepared, pdf) = await OfficeConverter.Convert(path, cancellation, () => Status.Text = "Preparing the document for viewing…");
+        var (prepared, pdf) = await WithPassword(password => OfficeConverter.Convert(path, cancellation, () => Status.Text = "Preparing the document for viewing…", password));
         Welcome.Visibility = TextView.Visibility = MarkdownDisplay.Visibility = CsvGrid.Visibility = Visibility.Collapsed;
         WebPane.Visibility = Visibility.Visible;
         bool slides = prepared.Kind == "slides";
@@ -628,22 +629,44 @@ public partial class MainWindow : Window
         try { WebPane.Find(query, false); return await result.Task.WaitAsync(TimeSpan.FromSeconds(20)); }
         finally { WebPane.FindResult -= Handler; }
     }
-    private string? AskPdfPassword(bool incorrect)
+    // Smoke test only (App.xaml.cs): no dialog is shown; the password given for the file, or none, is used instead.
+    internal static bool TestMode { get; set; }
+    internal static string? TestPassword { get; set; }
+
+    // Word, Excel and PowerPoint files protected with a password: ask, open again with it, and ask again while it is wrong.
+    private async Task<T> WithPassword<T>(Func<string?, Task<T>> open)
     {
+        string? password = null;
+        while (true)
+        {
+            try { return await open(password); }
+            catch (PasswordException ex)
+            {
+                Status.Text = ex.Message;
+                password = AskPassword(ex.Incorrect, ex.Incorrect ? ex.Message : ex.Message.Replace(" Enter its password to view it.", "") + " Enter its password to view it.");
+                if (password is null) throw new DocumentException("This file is protected with a password. Open it again and enter its password to view it.");
+            }
+        }
+    }
+    private string? AskPdfPassword(bool incorrect) =>
+        AskPassword(incorrect, incorrect ? "That password is not correct. Try again." : "This PDF is protected. Enter its password to view it.");
+    private string? AskPassword(bool incorrect, string prompt)
+    {
+        if (TestMode) return incorrect ? null : TestPassword;
         var box = new PasswordBox { Margin = new Thickness(0, 10, 0, 14), MinWidth = 280 };
-        System.Windows.Automation.AutomationProperties.SetName(box, "PDF password");
+        System.Windows.Automation.AutomationProperties.SetName(box, "Password");
         var ok = new Button { Content = "Open", IsDefault = true, Padding = new Thickness(16, 6, 16, 6), Margin = new Thickness(0, 0, 8, 0) };
         var cancel = new Button { Content = "Cancel", IsCancel = true, Padding = new Thickness(16, 6, 16, 6) };
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
         buttons.Children.Add(ok); buttons.Children.Add(cancel);
         var panel = new StackPanel { Margin = new Thickness(20) };
-        panel.Children.Add(new TextBlock { Text = incorrect ? "That password is not correct. Try again." : "This PDF is protected. Enter its password to view it.", TextWrapping = TextWrapping.Wrap, MaxWidth = 320 });
+        panel.Children.Add(new TextBlock { Text = prompt, TextWrapping = TextWrapping.Wrap, MaxWidth = 320 });
         panel.Children.Add(box); panel.Children.Add(buttons);
         var dialog = new Window { Title = "Password required", Owner = IsVisible ? this : null, Content = panel, SizeToContent = SizeToContent.WidthAndHeight,
             ResizeMode = ResizeMode.NoResize, WindowStartupLocation = WindowStartupLocation.CenterOwner, ShowInTaskbar = false };
         ok.Click += (_, _) => dialog.DialogResult = true;
         dialog.Loaded += (_, _) => box.Focus();
-        // The password goes straight to PDF.js; it is never stored or logged.
+        // The password goes straight to PDF.js or the worker; it is never stored or logged.
         return dialog.ShowDialog() == true ? box.Password : null;
     }
     private bool IsDarkTheme()

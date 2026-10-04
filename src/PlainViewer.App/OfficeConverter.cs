@@ -69,12 +69,13 @@ internal static class OfficeConverter
 
     // The whole Word/PowerPoint path: the worker checks the package and writes a private copy without outside
     // references, then LibreOffice converts that copy. `converting` runs between the two steps (status text).
-    public static async Task<(DocumentView Prepared, byte[] Pdf)> Convert(string path, CancellationToken cancellation, Action? converting = null)
+    // password: for a protected Word or PowerPoint file; the worker decrypts it and writes only the cleaned copy.
+    public static async Task<(DocumentView Prepared, byte[] Pdf)> Convert(string path, CancellationToken cancellation, Action? converting = null, string? password = null)
     {
         string work = NewWorkFolder();
         try
         {
-            var (prepared, copy) = await Prepare(path, work, cancellation);
+            var (prepared, copy) = await Prepare(path, work, cancellation, password);
             converting?.Invoke();
             return (prepared, await ToPdf(copy, work, cancellation));
         }
@@ -83,11 +84,11 @@ internal static class OfficeConverter
 
     // The worker checks the file and writes a cleaned private copy. OOXML variants are relabelled as plain .docx/.pptx;
     // other formats are named after their content (for example an RTF saved with a .doc name).
-    private static async Task<(DocumentView Prepared, string Copy)> Prepare(string path, string work, CancellationToken cancellation)
+    private static async Task<(DocumentView Prepared, string Copy)> Prepare(string path, string work, CancellationToken cancellation, string? password = null)
     {
         bool converted = ConvertedDocuments.Handles(path);
         string copy = Path.Combine(work, "in", converted ? "document" + Path.GetExtension(path).ToLowerInvariant() : OfficePackages.IsWord(path) ? "document.docx" : "document.pptx");
-        var prepared = await WorkerClient.PrepareOffice(path, copy, cancellation);
+        var prepared = await WorkerClient.PrepareOffice(path, copy, cancellation, password);
         if (converted && Path.ChangeExtension(copy, ConvertedDocuments.CopyExtension(prepared)) is var named && named != copy)
         { File.Move(copy, named); copy = named; }
         return (prepared, copy);
