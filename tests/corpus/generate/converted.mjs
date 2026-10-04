@@ -204,6 +204,15 @@ export async function generateConverted() {
     ["ppt/simple.ppt", "ppt", "simple", { result: "open", kind: "slides", text: ["Hello"] }],
     ["ppt/complex.ppt", "ppt", "complex", { result: "open", kind: "slides", text: ["Hello"] }],
     ["ppt/attack-remote-image.ppt", "ppt", "attack", { result: "open", kind: "slides", removedAtLeast: 1, text: ["Hello"] }, "Linked picture to the listener."],
+    // Saved with the test password "viewer-test" by LibreOffice (scripts/make-protected-office.ps1): without a password
+    // each asks for it; the core and smoke tests open them with it.
+    ["doc/password.doc", "doc", "password", { result: "error", error: "password" }, "RC4 encryption (Office 97/2000 compatible), as LibreOffice saves it."],
+    ["xls/password.xls", "xls", "password", { result: "error", error: "password" }, "RC4 encryption (Office 97/2000 compatible), as LibreOffice saves it."],
+    ["odt/password-libreoffice.odt", "odt", "password", { result: "error", error: "password" }, "LibreOffice's ODF encryption: Argon2id key, AES-256-GCM."],
+    ["ods/password.ods", "ods", "password", { result: "error", error: "password" }, "LibreOffice's ODF encryption: Argon2id key, AES-256-GCM."],
+    ["odp/password.odp", "odp", "password", { result: "error", error: "password" }, "LibreOffice's ODF encryption: Argon2id key, AES-256-GCM."],
+    ["odt/password-odf12.odt", "odt", "password", { result: "error", error: "password" }, "ODF 1.2 encryption (each part on its own): PBKDF2 key, AES-256-CBC, SHA-256 checksum."],
+    ["ods/password-odf12.ods", "ods", "password", { result: "error", error: "password" }, "ODF 1.2 encryption (each part on its own): PBKDF2 key, AES-256-CBC, SHA-256 checksum."],
     // Templates and the flat OpenDocument spreadsheet (0.8.0): shown as the document or workbook they hold.
     ["doc/template.dot", "dot", "simple", { result: "open", kind: "word", text: ["Hello from a Word document"] }, "Word 97-2003 template."],
     ["odt/template.ott", "ott", "simple", { result: "open", kind: "word", text: ["Hello from a Word document"] }, "OpenDocument text template: the private copy is labelled as a document."],

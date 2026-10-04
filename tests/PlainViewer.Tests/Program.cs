@@ -538,6 +538,71 @@ try
             Check(zip.GetEntry(name.StartsWith("docx") ? "word/document.xml" : "ppt/presentation.xml") is not null);
             Check(before.SequenceEqual(SHA256.HashData(File.ReadAllBytes(path))));
         });
+    // Older formats, saved with the test password by LibreOffice (scripts/make-protected-office.ps1): RC4 encryption.
+    Test("Protected .xls workbook (RC4): asks, refuses a wrong password, opens with the right one", () =>
+    {
+        string path = Path.Combine(corpus, "xls", "password.xls");
+        Check(!Throws<PasswordException>(() => LegacySpreadsheets.Load(path)).Incorrect);
+        Check(Throws<PasswordException>(() => WithPassword("Viewer-test", () => LegacySpreadsheets.Load(path))).Incorrect);
+        var opened = WithPassword("viewer-test", () => LegacySpreadsheets.Load(path));
+        var plain = LegacySpreadsheets.Load(Path.Combine(corpus, "xls", "simple.xls"));
+        Check(opened.Sheets.Select(s => s.Name).SequenceEqual(plain.Sheets.Select(s => s.Name)));
+        for (int s = 0; s < plain.Sheets.Count; s++)
+            Check(opened.Sheets[s].Rows.Count == plain.Sheets[s].Rows.Count && opened.Sheets[s].Rows.Zip(plain.Sheets[s].Rows).All(pair => pair.First.SequenceEqual(pair.Second)));
+    });
+    Test("Protected .doc (RC4): asks, refuses a wrong password, gives a decrypted cleaned copy with the right one", () =>
+    {
+        string path = Path.Combine(corpus, "doc", "password.doc");
+        string Output() => Path.Combine(root, Guid.NewGuid().ToString("N"), "document.doc");
+        Check(!Throws<PasswordException>(() => ConvertedDocuments.Prepare(path, Output())).Incorrect);
+        Check(Throws<PasswordException>(() => WithPassword("wrong", () => ConvertedDocuments.Prepare(path, Output()))).Incorrect);
+        string output = Output();
+        WithPassword("viewer-test", () => ConvertedDocuments.Prepare(path, output));
+        var copy = new CompoundFile(File.ReadAllBytes(output), "test");
+        byte[] word = copy.Read(copy.Find("WordDocument")!, "test");
+        Check((BinaryPrimitives.ReadUInt16LittleEndian(word.AsSpan(0x0A)) & 0x0100) == 0);
+        // The decrypted main text holds the document's words (stored as single-byte text by LibreOffice).
+        Check(Encoding.Latin1.GetString(word).Contains("Hello from a Word document") || Encoding.Unicode.GetString(word).Contains("Hello from a Word document"));
+    });
+    Test("BLAKE2b and Argon2id match the RFC test vectors", () =>
+    {
+        Check(Convert.ToHexString(Blake2b.Hash("abc"u8.ToArray(), 64)).Equals(
+            "BA80A53F981C4D0D6A2797B69F12F6E94C212F14685AC4B74B12BB6FDBFFA2D17D87C5392AAB792DC252D5DE4533CC9518D38AA8DBF1925AB92386EDD4009923", StringComparison.Ordinal));
+        byte[] tag = Argon2.Hash(Enumerable.Repeat((byte)1, 32).ToArray(), Enumerable.Repeat((byte)2, 16).ToArray(), 3, 32, 4, 32,
+            Enumerable.Repeat((byte)3, 8).ToArray(), Enumerable.Repeat((byte)4, 12).ToArray());
+        Check(Convert.ToHexString(tag) == "0D640DF58D78766C08C037A34A8B53C9D01EF0452D75B65EB52520E96B01E659");
+    });
+    foreach (var name in new[] { "odt/password-libreoffice.odt", "ods/password.ods", "odp/password.odp", "odt/password-odf12.odt", "ods/password-odf12.ods" })
+        Test("Protected OpenDocument file decrypts with its password: " + name, () =>
+        {
+            using var zip = new ZipArchive(File.OpenRead(Path.Combine(corpus, name.Replace('/', Path.DirectorySeparatorChar))));
+            Check(OpenDocumentEncryption.IsEncrypted(zip));
+            Check(!Throws<PasswordException>(() => OpenDocumentEncryption.Decrypt(zip, "file")).Incorrect);
+            Check(Throws<PasswordException>(() => WithPassword("Viewer-test", () => OpenDocumentEncryption.Decrypt(zip, "file"))).Incorrect);
+            byte[] plain = WithPassword("viewer-test", () => OpenDocumentEncryption.Decrypt(zip, "file"));
+            using var inner = new ZipArchive(new MemoryStream(plain));
+            using var content = new StreamReader(inner.GetEntry("content.xml")!.Open());
+            Check(content.ReadToEnd().Contains("Hello"));
+        });
+    Test("Protected OpenDocument files open through the usual readers with their password", () =>
+    {
+        foreach (var name in new[] { "odt/password-libreoffice.odt", "odp/password.odp", "odt/password-odf12.odt" })
+        {
+            string path = Path.Combine(corpus, name.Replace('/', Path.DirectorySeparatorChar)), output = Path.Combine(root, Guid.NewGuid().ToString("N"), "document" + Path.GetExtension(path));
+            WithPassword("viewer-test", () => ConvertedDocuments.Prepare(path, output));
+            using var zip = new ZipArchive(File.OpenRead(output));
+            Check(!OpenDocumentEncryption.IsEncrypted(zip) && zip.GetEntry("content.xml") is not null);
+        }
+        var sheet = WithPassword("viewer-test", () => LegacySpreadsheets.Load(Path.Combine(corpus, "ods", "password.ods")));
+        Check(sheet.Kind == "sheet" && sheet.Sheets.Count > 0 && sheet.Sheets[0].Rows.Count > 0);
+    });
+    Test("RC4 CryptoAPI header (Office 2003 and later .doc/.xls): parsed and the password checked (self-made header)", () =>
+    {
+        byte[] header = LegacyEncryption.CryptoApiHeaderForTests("Pässword 2003");
+        Check(Throws<PasswordException>(() => LegacyEncryption.Open(header, "file")) is { Incorrect: false });
+        Check(Throws<PasswordException>(() => WithPassword("password 2003", () => LegacyEncryption.Open(header, "file"))).Incorrect);
+        Check(WithPassword("Pässword 2003", () => LegacyEncryption.Open(header, "file")) is not null);
+    });
     Test("Standard (Office 2007) encryption round trip", () =>
     {
         byte[] plain = File.ReadAllBytes(Path.Combine(corpus, "xlsx", "simple.xlsx"));
@@ -687,7 +752,8 @@ try
         {
             var entry = compound.Find("WordDocument")!; var word = compound.Read(entry, "file"); change(word); compound.Write(entry, word, "file"); return true;
         }
-        Check(Message(Patched("doc/simple.doc", "encrypted.doc", (all, c) => Fib(c, w => w[0x0B] |= 0x01, all))).Contains("password"));
+        // Marked as encrypted without an encryption header: damaged (real protected files are tested above).
+        Check(Message(Patched("doc/simple.doc", "encrypted.doc", (all, c) => Fib(c, w => w[0x0B] |= 0x01, all))).Contains("damaged"));
         Check(Message(Patched("doc/simple.doc", "word95.doc", (all, c) => Fib(c, w => BinaryPrimitives.WriteUInt16LittleEndian(w.AsSpan(2), 0x0065), all))).Contains("Word 95"));
         // Excel: a FILEPASS record in the workbook stream (the second record's type is changed to it).
         string SheetMessage(string path) { try { LegacySpreadsheets.Load(path); return ""; } catch (DocumentException ex) { return ex.Message; } }
@@ -696,7 +762,7 @@ try
             var entry = c.Find("Workbook")!; var book = c.Read(entry, "file");
             int second = 4 + BinaryPrimitives.ReadUInt16LittleEndian(book.AsSpan(2));
             BinaryPrimitives.WriteUInt16LittleEndian(book.AsSpan(second), 0x002F); c.Write(entry, book, "file"); return true;
-        })).Contains("password"));
+        })) is var fake && (fake.Contains("password") || fake.Contains("damaged")));
         // A compound file cut short, and one whose FAT points outside the file.
         byte[] doc = File.ReadAllBytes(Path.Combine(corpus, "doc", "simple.doc"));
         string cut = Path.Combine(root, "cut.doc"); File.WriteAllBytes(cut, doc[..(doc.Length / 3)]);

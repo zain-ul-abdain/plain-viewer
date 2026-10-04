@@ -80,7 +80,7 @@ public static partial class ConvertedDocuments
         {
             byte[] copy = format switch
             {
-                Format.Odt or Format.Ods or Format.Odp => OpenDocument(bytes, label, ref removed, ref macros),
+                Format.Odt or Format.Ods or Format.Odp => OpenDocument(Decrypted(bytes, label), label, ref removed, ref macros),
                 Format.Rtf => Rtf(bytes, ref removed, ref macros),
                 Format.Doc => Word97(bytes, label, ref removed, ref macros),
                 Format.Ppt => PowerPoint97(bytes, label, ref removed, ref macros),
@@ -110,8 +110,9 @@ public static partial class ConvertedDocuments
         if (CompoundFile.IsCompoundFile(s))
         {
             var file = new CompoundFile(bytes, noun);
-            if (file.Has("EncryptionInfo") || file.Has("EncryptedPackage") || file.Has("EncryptedSummary"))
-                throw new DocumentException($"This {noun} is protected with a password. Password-protected files cannot be opened in this version. Remove the password in the application that made it, or ask the sender for an unprotected copy.");
+            // A password-protected newer Office file (an encrypted .docx/.pptx package) with an older file's name.
+            if (file.Has("EncryptionInfo") || file.Has("EncryptedPackage"))
+                throw new DocumentException($"This is a password-protected newer Office file (such as .docx or .pptx) saved with a {extension} name. Rename it with the right ending to view it.");
             var format = file.Has("WordDocument") ? Format.Doc : file.Has("Workbook") || file.Has("Book") ? Format.Xls : file.Has("PowerPoint Document") ? Format.Ppt : (Format?)null;
             if (format is null || KindOf("x" + (format == Format.Doc ? ".doc" : format == Format.Xls ? ".xls" : ".ppt")) != kind) throw new DocumentException(Named());
             return format.Value;
@@ -141,6 +142,14 @@ public static partial class ConvertedDocuments
     }
 
     // ---- OpenDocument ----
+
+    // A password-protected OpenDocument file, decrypted in memory with the password the user typed (OpenDocumentEncryption).
+    private static byte[] Decrypted(byte[] bytes, string label)
+    {
+        using var zip = new ZipArchive(new MemoryStream(bytes, false), ZipArchiveMode.Read);
+        ArchiveSafety.Validate(zip, maximumBytes: 2L * 1024 * 1024 * 1024, maximumEntries: 10000, maximumRatio: 500);
+        return OpenDocumentEncryption.IsEncrypted(zip) ? OpenDocumentEncryption.Decrypt(zip, label) : bytes;
+    }
 
     // A template's media type ("…opendocument.text-template"): the copy is labelled as the document type instead.
     private static readonly Regex TemplateType = new(@"(application/vnd\.oasis\.opendocument\.[a-z]+)-template", RegexOptions.CultureInvariant);
@@ -319,11 +328,27 @@ public static partial class ConvertedDocuments
         if (BinaryPrimitives.ReadUInt16LittleEndian(word.AsSpan(2)) < 0x00C1)
             throw new DocumentException("This is a Word 6.0 or Word 95 document, which is older than this viewer supports. Save it in a newer format to view it.");
         ushort flags = BinaryPrimitives.ReadUInt16LittleEndian(word.AsSpan(0x0A));
-        if ((flags & 0x0100) != 0)
-            throw new DocumentException($"This {label} is protected with a password. Password-protected files cannot be opened in this version. Remove the password in Word, or ask the sender for an unprotected copy.");
         macros = file.Has("Macros");
         var table = file.Find((flags & 0x0200) != 0 ? "1Table" : "0Table") ?? throw Damaged(label);
         byte[] tableBytes = file.Read(table, label);
+        if ((flags & 0x0100) != 0)
+        {
+            // Password protected ([MS-DOC] 2.2.6): the encryption header starts the table stream (lKey bytes); the main
+            // stream after its first 68 bytes, the rest of the table stream and the Data stream are encrypted in 512-byte
+            // blocks. Decrypted in the private copy with the password the user typed, then marked as not encrypted.
+            if ((flags & 0x8000) != 0) throw LegacyEncryption.Unsupported(label);    // XOR obfuscation
+            int headerSize = BinaryPrimitives.ReadInt32LittleEndian(word.AsSpan(0x0E));
+            if (headerSize <= 0 || headerSize > tableBytes.Length) throw Damaged(label);
+            var key = LegacyEncryption.Open(tableBytes.AsSpan(0, headerSize), label);
+            key.Decrypt(word, 512, 68, word.Length);
+            key.Decrypt(tableBytes, 512, headerSize, tableBytes.Length);
+            if (file.Find("Data") is { } dataStream) { var dataBytes = file.Read(dataStream, label); key.Decrypt(dataBytes, 512, 0, dataBytes.Length); file.Write(dataStream, dataBytes, label); }
+            flags = (ushort)(flags & ~0x8100);
+            BinaryPrimitives.WriteUInt16LittleEndian(word.AsSpan(0x0A), flags);
+            BinaryPrimitives.WriteInt32LittleEndian(word.AsSpan(0x0E), 0);
+            file.Write(main, word, label);
+            file.Write(table, tableBytes, label);
+        }
 
         // Field instructions are in the main text: find the piece table (Clx) through the FIB.
         int pos = 32;
@@ -393,6 +418,15 @@ public static partial class ConvertedDocuments
         var file = new CompoundFile(bytes, label);
         var main = file.Find("PowerPoint Document") ?? throw Damaged(label);
         byte[] records = file.Read(main, label);
+        // Password protected: decrypted in the private copy with the password the user typed (LegacyEncryption).
+        bool decrypted = false;
+        if (file.Find("Current User") is { } userEntry && file.Read(userEntry, label) is { Length: >= 20 } user &&
+            BinaryPrimitives.ReadUInt32LittleEndian(user.AsSpan(12)) == LegacyEncryption.EncryptedToken)
+        {
+            LegacyEncryption.DecryptPresentation(records, user, label);
+            file.Write(userEntry, user, label);
+            decrypted = true;
+        }
         int count = 0; bool encrypted = false, vba = false;
         void Walk(int from, int to, int depth)
         {
@@ -413,8 +447,8 @@ public static partial class ConvertedDocuments
             }
         }
         Walk(0, records.Length, 0);
-        if (encrypted)
-            throw new DocumentException($"This {label} is protected with a password. Password-protected presentations cannot be opened in this version. Remove the password in PowerPoint, or ask the sender for an unprotected copy.");
+        // An encryption record without the Current User stream saying so: not a file this viewer can decrypt.
+        if (encrypted && !decrypted) throw LegacyEncryption.Unsupported(label);
         macros = vba || file.Has("_VBA_PROJECT");
         removed += count;
         file.Write(main, records, label);

@@ -363,3 +363,10 @@ Suggested title: Preserve Markdown list starts and table alignment and scroll wi
 
 - With Zain's approval ("publish"): https://github.com/zain-ul-abdain/plain-viewer/releases/tag/v0.8.0 (pre-release, tag at e102171, GitHub Actions run 37205711530, unsigned). Windows Sandbox clean-PC test passed, now with web pages, a book, code files, templates and two password files (TEST-RESULTS.md). README, BETA.md and STORE-LISTING.md list the new formats.
 - **Open:** passwords for .doc/.xls/.ppt (RC4/CryptoAPI) and OpenDocument files if Zain wants them; ARM64; for Zain: Partner Center, Narrator and scaling checks.
+
+## Agent 2, 5 October 2026: passwords for .doc, .xls, .ppt and OpenDocument (not yet released)
+
+- `Core/LegacyEncryption.cs`: RC4 (written here), [MS-OFFCRYPTO] RC4 and RC4 CryptoAPI key derivation; `DecryptWorkbook` (.xls stream, 1,024-byte blocks, skips headers and the unencrypted records) used by `LegacySpreadsheets.Excel97.Read`; `ConvertedDocuments.Word97` decrypts WordDocument/table/Data streams (512-byte blocks) in the copy and clears fEncrypted; `DecryptPresentation` (.ppt, per persist object; Current User token 0xF3D1C4DF means encrypted).
+- `Core/OpenDocumentEncryption.cs` + `Core/Argon2.cs` (Argon2id and BLAKE2b): wholesome ODF 1.4 (encrypted-package; IV, ciphertext and tag in the part itself, W3C layout) and ODF 1.2 per-part AES-CBC (checksum over the unpadded first kilobyte). Used by `ConvertedDocuments.Decrypted` and the .ods branch of `LegacySpreadsheets.Load`.
+- Fixtures: `scripts/make-protected-office.ps1` (+ .py, UNO through LibreOffice's Python); the ODF 1.2 pass sets DefaultVersion 9. LibreOffice sometimes crashes saving the .ods; rerun the script (it skips files that exist).
+- **Untested:** Office-made RC4 CryptoAPI .doc/.xls and any protected .ppt.

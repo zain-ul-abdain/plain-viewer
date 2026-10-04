@@ -58,6 +58,13 @@ public static partial class LegacySpreadsheets
                 string mime = "";
                 if (zip.GetEntry("mimetype") is { Length: < 200 } entry) using (var reader = new StreamReader(entry.Open())) mime = reader.ReadToEnd().Trim();
                 if (mime is not ("application/vnd.oasis.opendocument.spreadsheet" or "application/vnd.oasis.opendocument.spreadsheet-template")) throw new DocumentException(Named());
+                // Password protected: decrypted in memory with the password the user typed (OpenDocumentEncryption).
+                ArchiveSafety.Validate(zip, maximumBytes: 2L * 1024 * 1024 * 1024, maximumEntries: 10000, maximumRatio: 500);
+                if (OpenDocumentEncryption.IsEncrypted(zip))
+                {
+                    using var plain = new ZipArchive(new MemoryStream(OpenDocumentEncryption.Decrypt(zip, "spreadsheet"), false), ZipArchiveMode.Read);
+                    return new OpenDocumentSheets(plain, storeFolder).Read();
+                }
                 return new OpenDocumentSheets(zip, storeFolder).Read();
             }
             if (FlatOpenDocument(bytes) is { } flat)
@@ -369,13 +376,18 @@ public static partial class LegacySpreadsheets
             data = file.Read(file.Find("Workbook")!, Label);
             var globals = Records(0);
             if (globals.Count == 0 || globals[0].Type != 0x0809) throw Damaged();
+            // Password protected: decrypted in memory with the password the user typed (LegacyEncryption).
+            if (globals.FindIndex(r => r.Type == 0x002F) is int filepass and >= 0)
+            {
+                data = LegacyEncryption.DecryptWorkbook(data, globals[filepass].Offset, globals[filepass].Length);
+                globals = Records(0);
+            }
             var sheets = new List<(string Name, int State, int Type, int Offset)>();
             for (int i = 0; i < globals.Count; i++)
             {
                 var (type, at, length) = globals[i];
                 switch (type)
                 {
-                    case 0x002F: throw new DocumentException("This workbook is protected with a password. Password-protected workbooks cannot be opened in this version. Remove the password in Excel, or ask the sender for an unprotected copy.");
                     case 0x0022: date1904 = length >= 2 && BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(at)) == 1; break;
                     case 0x041E when length >= 5:
                         custom[BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(at))] = XlString(at + 2, at + length, twoByteCount: true, out _);

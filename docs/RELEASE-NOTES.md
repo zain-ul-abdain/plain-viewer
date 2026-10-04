@@ -1,5 +1,10 @@
 # Release notes
 
+## Next version (not yet released)
+
+- **Password-protected older Office files and OpenDocument files** open after you type the password: .doc, .xls, .ppt, .odt, .ods, .odp and their templates.
+- Fixed: a password-protected OpenDocument file saved by current LibreOffice was described as damaged, and a password-protected .ppt file was not recognised as protected.
+
 ## 0.8.0 — beta: web pages, EPUB books, code files and password-protected Office files (October 2026)
 
 Install over any earlier beta; nothing needs uninstalling first.
