@@ -328,7 +328,16 @@ public partial class MainWindow : Window
         {
             // Only a picture the worker wrote, and only if its bytes are still the kind of picture its name says.
             string name = query["name"] ?? "";
-            if (rowStoreFolder is not { } folder || ImageFiles.ContentTypeOf(name) is not { } type) return null;
+            if (rowStoreFolder is not { } folder) return null;
+            // A font the worker saved from a book: only under a font name, and only if its bytes are that kind of font.
+            if (WebDocuments.FontContentType(name) is { } fontType)
+            {
+                var fontFile = new FileInfo(Path.Combine(folder, name));
+                if (!fontFile.Exists || fontFile.Length > 16L * 1024 * 1024) return null;
+                byte[] font = File.ReadAllBytes(fontFile.FullName);
+                return "font/" + WebDocuments.FontType(font) == fontType ? font : null;
+            }
+            if (ImageFiles.ContentTypeOf(name) is not { } type) return null;
             var file = new FileInfo(Path.Combine(folder, name));
             if (!file.Exists || file.Length > 20L * 1024 * 1024) return null;
             byte[] bytes = File.ReadAllBytes(file.FullName);

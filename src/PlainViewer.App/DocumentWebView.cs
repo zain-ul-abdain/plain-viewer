@@ -112,7 +112,7 @@ internal sealed class DocumentWebView : Border
             var environment = web.CoreWebView2.Environment;
             var query = System.Web.HttpUtility.ParseQueryString(uri.Query);
             string path = uri.AbsolutePath;
-            string type = path == "/media" ? ImageFiles.ContentTypeOf(query["name"] ?? "") ?? "application/octet-stream" : "application/json; charset=utf-8";
+            string type = path == "/media" ? ImageFiles.ContentTypeOf(query["name"] ?? "") ?? WebDocuments.FontContentType(query["name"] ?? "") ?? "application/octet-stream" : "application/json; charset=utf-8";
             _ = Task.Run(() =>
             {
                 try { return data(path, query); }

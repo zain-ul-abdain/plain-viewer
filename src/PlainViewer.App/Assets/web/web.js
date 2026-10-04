@@ -40,11 +40,16 @@ function resolve(base, reference) {
 }
 const lookup = (map, base, reference) => map[reference] ?? map[resolve(base, reference)];
 
-// Style sheets keep their rules; imports and url() references go, except pictures written into the sheet itself.
-function cleanCss(css) {
+// Style sheets keep their rules; imports and url() references go, except pictures written into the sheet itself and a
+// book's own fonts (served by the app under names the worker gave them). base: where the sheet is in the book.
+function cleanCss(css, base = "") {
   return String(css)
     .replace(/@import[^;]*;?/gi, "")
-    .replace(/url\(\s*(['"]?)([^)]*?)\1\s*\)/gi, (match, quote, address) => /^data:image\/(png|jpeg|gif|webp|avif|bmp)[;,]/i.test(address) ? match : "none")
+    .replace(/url\(\s*(['"]?)([^)]*?)\1\s*\)/gi, (match, quote, address) => {
+      if (/^data:image\/(png|jpeg|gif|webp|avif|bmp)[;,]/i.test(address)) return match;
+      const font = lookup(content.fonts ?? {}, base, address);
+      return font ? `url("${mediaUrl(font)}")` : "none";
+    })
     .replace(/expression\s*\(|-moz-binding|behavior\s*:/gi, "invalid(");
 }
 
@@ -64,9 +69,9 @@ function cleanPart(part, index, styles) {
   for (const element of doc.querySelectorAll(SCRIPT_LIKE)) { removed.active++; element.remove(); }
   for (const link of doc.querySelectorAll("link")) {
     const rel = (link.getAttribute("rel") || "").toLowerCase(), href = link.getAttribute("href") || "";
-    if (rel.split(/\s+/).includes("stylesheet") && href) { const css = lookup(content.styles, base, href); if (css != null) styles.add(cleanCss(css)); }
+    if (rel.split(/\s+/).includes("stylesheet") && href) { const css = lookup(content.styles, base, href); if (css != null) styles.add(cleanCss(css, content.styles[href] != null ? href : resolve(base, href))); }
   }
-  for (const style of doc.querySelectorAll("style")) { styles.add(cleanCss(style.textContent)); style.remove(); }
+  for (const style of doc.querySelectorAll("style")) { styles.add(cleanCss(style.textContent, base)); style.remove(); }
   for (const element of doc.querySelectorAll(EMBEDDED)) {
     removed.embedded++;
     const name = element.localName;

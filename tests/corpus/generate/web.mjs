@@ -3,6 +3,7 @@
 // refer to something: scripts, pictures, style sheets, imports, frames, objects, forms, refreshes, links and SVG.
 import fs from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
 import JSZip from "jszip";
 import { CORPUS, GENERATED, LISTENER, WEBDAV_UNC, SAFE_RULES, FIXED_DATE, png, record, write } from "./lib.mjs";
 
@@ -114,7 +115,7 @@ const attackMht = mht([
 
 // ---- EPUB books ----
 
-async function epub(file, { title, chapters, css = "", pictures = {}, extra = {}, encryption }) {
+async function epub(file, { title, chapters, css = "", pictures = {}, fonts = {}, extra = {}, encryption }) {
   const zip = new JSZip();
   zip.file("mimetype", "application/epub+zip", { compression: "STORE" });
   zip.file("META-INF/container.xml", `<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>`);
@@ -126,6 +127,7 @@ async function epub(file, { title, chapters, css = "", pictures = {}, extra = {}
   });
   zip.file("OEBPS/styles/book.css", css); items.push(`<item id="css" href="styles/book.css" media-type="text/css"/>`);
   Object.entries(pictures).forEach(([name, bytes], i) => { zip.file(`OEBPS/images/${name}`, bytes); items.push(`<item id="p${i}" href="images/${name}" media-type="image/png"/>`); });
+  Object.entries(fonts).forEach(([name, bytes], i) => { zip.file(`OEBPS/fonts/${name}`, bytes); items.push(`<item id="f${i}" href="fonts/${name}" media-type="font/ttf"/>`); });
   for (const [name, text] of Object.entries(extra)) zip.file(`OEBPS/${name}`, text);
   zip.file("OEBPS/content.opf", `<?xml version="1.0" encoding="utf-8"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="id">urn:uuid:00000000-0000-4000-8000-000000000000</dc:identifier><dc:title>${title}</dc:title><dc:language>en</dc:language></metadata><manifest>${items.join("")}</manifest><spine>${spine.join("")}</spine></package>`);
   zip.forEach((_, f) => { f.date = FIXED_DATE; });
@@ -171,6 +173,19 @@ export async function generateWeb({ large }) {
   rec("attack.epub", "attack", { result: "open", kind: "web", parts: 1, pictures: 0, text: ["Hello book"] }, "Script, remote picture, a path climbing out of the book, frame, javascript: link and a style sheet importing from the listener.");
   await epub("drm.epub", { title: "Protected book", chapters: [["chapter1.xhtml", "<p>Encrypted</p>"]],
     encryption: `<?xml version="1.0"?><encryption xmlns="urn:oasis:names:tc:opendocument:xmlns:container" xmlns:enc="http://www.w3.org/2001/04/xmlenc#"><enc:EncryptedData><enc:EncryptionMethod Algorithm="http://www.w3.org/2001/04/xmlenc#aes128-cbc"/><enc:CipherData><enc:CipherReference URI="OEBPS/text/chapter1.xhtml"/></enc:CipherData></enc:EncryptedData></encryption>` });
+  // Embedded fonts (after 0.9.0): Liberation Sans from the app's PDF.js fonts (SIL Open Font License), once as it is and
+  // once obfuscated with the IDPF scheme (the first 1,040 bytes XORed with the SHA-1 of the book's identifier).
+  {
+    const font = fs.readFileSync(path.join(CORPUS, "..", "..", "src", "PlainViewer.App", "Assets", "pdf", "pdfjs", "standard_fonts", "LiberationSans-Regular.ttf"));
+    const key = crypto.createHash("sha1").update("urn:uuid:00000000-0000-4000-8000-000000000000").digest();
+    const obfuscated = Buffer.from(font);
+    for (let i = 0; i < Math.min(1040, obfuscated.length); i++) obfuscated[i] ^= key[i % key.length];
+    await epub("fonts.epub", { title: "Hello fonts", fonts: { "plain.ttf": font, "obfuscated.ttf": obfuscated },
+      css: `@font-face { font-family: "Book Sans"; src: url("../fonts/plain.ttf"); } @font-face { font-family: "Book Hidden"; src: url(../fonts/obfuscated.ttf); } h1 { font-family: "Book Sans"; } p { font-family: "Book Hidden"; }`,
+      encryption: `<?xml version="1.0"?><encryption xmlns="urn:oasis:names:tc:opendocument:xmlns:container" xmlns:enc="http://www.w3.org/2001/04/xmlenc#"><enc:EncryptedData><enc:EncryptionMethod Algorithm="http://www.idpf.org/2008/embedding"/><enc:CipherData><enc:CipherReference URI="OEBPS/fonts/obfuscated.ttf"/></enc:CipherData></enc:EncryptedData></encryption>`,
+      chapters: [["chapter1.xhtml", "<h1>Hello fonts</h1><p>Set in the book's own fonts.</p>"]] });
+    rec("fonts.epub", "complex", { result: "open", kind: "web", parts: 1, fonts: 2, text: ["Hello fonts"] }, "Two embedded fonts, one obfuscated (IDPF): both are restored, identified by their bytes and used by the book's style sheet.");
+  }
   rec("drm.epub", "password", { result: "error", error: "password" }, "Chapter listed as encrypted (as DRM-protected books are): refused with a clear message.");
   write("web/zip-named.epub", fs.readFileSync(path.join(CORPUS, "xlsx", "simple.xlsx")));
   rec("zip-named.epub", "wrong-extension", { result: "error", error: "mismatch" }, "An Excel workbook with an .epub name.");

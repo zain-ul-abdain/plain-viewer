@@ -38,6 +38,7 @@ public static class WebDocuments
         public List<Part> Parts { get; set; } = [];
         public Dictionary<string, string> Pictures { get; set; } = [];   // path or address in the file -> media name
         public Dictionary<string, string> Styles { get; set; } = [];     // path or address in the file -> style sheet text
+        public Dictionary<string, string> Fonts { get; set; } = [];      // books: path in the book -> font name (FontName)
     }
 
     public static DocumentView Load(string path, string folder)
@@ -221,14 +222,25 @@ public static class WebDocuments
         ArchiveSafety.Validate(zip, maximumBytes: 1024L * 1024 * 1024, maximumEntries: 20000, maximumRatio: 200);
         if (zip.GetEntry("META-INF/container.xml") is not { } container)
             throw new DocumentException("This file is named .epub, but its contents are not an EPUB book. Open it with an application for its actual format.");
-        // Books protected with DRM keep their pages encrypted; only fonts may be (obfuscated, not protected).
+        // Books protected with DRM keep their pages encrypted; only fonts may be listed, obfuscated with the IDPF or
+        // Adobe scheme (undone below, as reading systems do), not protected.
+        var obfuscated = new Dictionary<string, string>();   // font path -> algorithm
         if (zip.GetEntry("META-INF/encryption.xml") is { } encryption)
         {
             using var reader = XmlReader.Create(encryption.Open(), XmlSettings);
+            string algorithm = "";
             while (reader.Read())
-                if (reader.NodeType == XmlNodeType.Element && reader.LocalName == "CipherReference" &&
-                    !Regex.IsMatch(reader.GetAttribute("URI") ?? "", @"\.(otf|ttf|woff2?)$", RegexOptions.IgnoreCase))
-                    throw new DocumentException("This book is protected with DRM (copy protection), so it can only be read in the app it was bought for.");
+            {
+                if (reader.NodeType != XmlNodeType.Element) continue;
+                if (reader.LocalName == "EncryptionMethod") algorithm = reader.GetAttribute("Algorithm") ?? "";
+                else if (reader.LocalName == "CipherReference")
+                {
+                    string uri = Uri.UnescapeDataString(reader.GetAttribute("URI") ?? "");
+                    if (!Regex.IsMatch(uri, @"\.(otf|ttf|woff2?)$", RegexOptions.IgnoreCase) || algorithm is not (IdpfObfuscation or AdobeObfuscation))
+                        throw new DocumentException("This book is protected with DRM (copy protection), so it can only be read in the app it was bought for.");
+                    obfuscated[Resolve("", uri)] = algorithm;
+                }
+            }
         }
         string? opfPath = null;
         using (var reader = XmlReader.Create(container.Open(), XmlSettings))
@@ -239,16 +251,21 @@ public static class WebDocuments
         var manifest = new Dictionary<string, (string Href, string Type)>();
         var spine = new List<string>();
         var content = new Content { Kind = "book" };
+        string? uniqueId = null;
+        var identifiers = new Dictionary<string, string>();
         using (var reader = XmlReader.Create(opf.Open(), XmlSettings))
             while (reader.Read())
             {
                 if (reader.NodeType != XmlNodeType.Element) continue;
-                if (reader.LocalName == "item" && reader.GetAttribute("id") is { } id && reader.GetAttribute("href") is { } href)
+                if (reader.LocalName == "package") uniqueId = reader.GetAttribute("unique-identifier");
+                else if (reader.LocalName == "identifier" && reader.NamespaceURI == DcNs) { string key = reader.GetAttribute("id") ?? ""; string value = reader.ReadElementContentAsString(); identifiers.TryAdd(key, value); }
+                else if (reader.LocalName == "item" && reader.GetAttribute("id") is { } id && reader.GetAttribute("href") is { } href)
                     manifest[id] = (Resolve(root, Uri.UnescapeDataString(href)), reader.GetAttribute("media-type") ?? "");
                 else if (reader.LocalName == "itemref" && reader.GetAttribute("idref") is { } idref) spine.Add(idref);
                 else if (reader.LocalName == "title" && reader.NamespaceURI == DcNs && content.Title.Length == 0) content.Title = reader.ReadElementContentAsString().Trim();
             }
-        int pictures = 0;
+        int pictures = 0, fonts = 0;
+        string identifier = uniqueId is not null && identifiers.TryGetValue(uniqueId, out var found) ? found : identifiers.Values.FirstOrDefault() ?? "";
         foreach (var (href, type) in manifest.Values)
         {
             if (zip.GetEntry(href) is not { } entry) continue;
@@ -257,6 +274,12 @@ public static class WebDocuments
                 if (SavePicture(Read(entry), folder, budget, pictures) is { } name) { content.Pictures[href] = name; pictures++; }
             }
             else if (type == "text/css") content.Styles[href] = Decode(Read(entry), null);
+            else if ((type.Contains("font", StringComparison.OrdinalIgnoreCase) || Regex.IsMatch(href, @"\.(otf|ttf|woff2?)$", RegexOptions.IgnoreCase)) && fonts < 100 && entry.Length <= 16 * 1024 * 1024)
+            {
+                byte[] font = Read(entry);
+                if (obfuscated.TryGetValue(href, out var scheme)) Deobfuscate(font, scheme, identifier);
+                if (FontType(font) is { } extension) { string name = $"font-{fonts++}.{extension}"; File.WriteAllBytes(Path.Combine(folder, name), font); content.Fonts[href] = name; }
+            }
         }
         foreach (var idref in spine)
         {
@@ -266,6 +289,38 @@ public static class WebDocuments
         if (content.Parts.Count == 0) throw new DocumentException("This book has no pages to show. It may be damaged; try another copy of the file.");
         return content;
     }
+
+    private const string IdpfObfuscation = "http://www.idpf.org/2008/embedding", AdobeObfuscation = "http://ns.adobe.com/pdf/enc#RC";
+
+    // Font obfuscation (not protection): IDPF XORs the first 1,040 bytes with the SHA-1 of the book's identifier
+    // (without white space); Adobe XORs the first 1,024 bytes with the 16 bytes of its UUID.
+    private static void Deobfuscate(byte[] font, string scheme, string identifier)
+    {
+        byte[] key;
+        int length;
+        if (scheme == IdpfObfuscation)
+        {
+            key = System.Security.Cryptography.SHA1.HashData(Encoding.UTF8.GetBytes(new string(identifier.Where(c => c is not (' ' or '\t' or '\r' or '\n')).ToArray())));
+            length = 1040;
+        }
+        else
+        {
+            string hex = new(identifier.Replace("urn:uuid:", "", StringComparison.OrdinalIgnoreCase).Where(Uri.IsHexDigit).ToArray());
+            if (hex.Length < 32) return;
+            key = Convert.FromHexString(hex[..32]);
+            length = 1024;
+        }
+        for (int i = 0; i < Math.Min(length, font.Length); i++) font[i] ^= key[i % key.Length];
+    }
+
+    // The kind of font, from its first bytes; null for anything else.
+    public static string? FontType(ReadOnlySpan<byte> b) =>
+        b.Length < 12 ? null : b.StartsWith("wOFF"u8) ? "woff" : b.StartsWith("wOF2"u8) ? "woff2" : b.StartsWith("OTTO"u8) ? "otf"
+        : b.StartsWith((ReadOnlySpan<byte>)[0, 1, 0, 0]) || b.StartsWith("true"u8) ? "ttf" : null;
+
+    // Fonts the worker wrote for a book: "font-<n>.<type>", and their content type.
+    public static readonly Regex FontName = new(@"^font-\d{1,3}\.(ttf|otf|woff|woff2)$", RegexOptions.CultureInvariant);
+    public static string? FontContentType(string name) => FontName.Match(name) is { Success: true } m ? "font/" + m.Groups[1].Value : null;
 
     private static byte[] Read(ZipArchiveEntry entry)
     {

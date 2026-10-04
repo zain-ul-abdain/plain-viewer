@@ -507,6 +507,9 @@ try
                 if (expect.TryGetProperty("parts", out var parts) && content.Parts.Count != parts.GetInt32()) throw new Exception($"Parts: {content.Parts.Count}");
                 if (expect.TryGetProperty("pictures", out var pictures) && content.Pictures.Values.Distinct().Count() != pictures.GetInt32()) throw new Exception($"Pictures: {content.Pictures.Count}");
                 if (expect.TryGetProperty("styles", out var styles) && content.Styles.Values.Distinct().Count() != styles.GetInt32()) throw new Exception($"Style sheets: {content.Styles.Count}");
+                if (expect.TryGetProperty("fonts", out var fonts) && content.Fonts.Values.Distinct().Count() != fonts.GetInt32()) throw new Exception($"Fonts: {content.Fonts.Count}");
+                foreach (var font in content.Fonts.Values.Distinct())
+                    Check(WebDocuments.FontContentType(font) is { } fontType && "font/" + WebDocuments.FontType(File.ReadAllBytes(Path.Combine(work, font))) == fontType);
                 string all = string.Join("\n", content.Parts.Select(p => p.Html));
                 foreach (var text in expect.GetProperty("text").EnumerateArray())
                     if (!all.Contains(text.GetString()!)) throw new Exception($"Text '{text.GetString()}' not found.");
@@ -514,7 +517,7 @@ try
                 foreach (var name in content.Pictures.Values.Distinct())
                     Check(ImageFiles.ContentTypeOf(name) is { } type && ImageFiles.Identify(File.ReadAllBytes(Path.Combine(work, name)))?.ContentType == type);
                 // Nothing outside the file was written: only web.json and the pictures.
-                Check(Directory.GetFiles(work).Select(Path.GetFileName).All(name => name == WebDocuments.Output || ImageFiles.ContentTypeOf(name!) is not null));
+                Check(Directory.GetFiles(work).Select(Path.GetFileName).All(name => name == WebDocuments.Output || ImageFiles.ContentTypeOf(name!) is not null || WebDocuments.FontContentType(name!) is not null));
             }
             Check(before.SequenceEqual(SHA256.HashData(File.ReadAllBytes(path))));
             Check(siblings.SequenceEqual(Directory.GetFiles(Path.GetDirectoryName(path)!)));
