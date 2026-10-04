@@ -43,6 +43,27 @@ internal static class SheetDrawings
                 using (var stream = media.Open()) stream.ReadExactly(bytes);
                 AddPicture(bytes, placed, folder, sheet, budget, result);
             }
+            else if (content?.Name.LocalName == "graphicFrame" && content.Descendants().FirstOrDefault(e => e.Name.LocalName == "relIds") is { } diagram)
+            {
+                // SmartArt: Excel keeps a drawn copy of the diagram as ordinary shapes (the "diagram drawing" part), in
+                // the frame's own space; it is shown like a group. Found through the data part's dataModelExt, or the
+                // drawing's only diagram drawing.
+                string? drawn = null;
+                if (Attribute(diagram, "dm") is { } dataId && rels.TryGetValue(dataId, out var data) && entry(data.Target) is not null)
+                {
+                    using var reader = open(data.Target);
+                    var model = XDocument.Load(reader);
+                    if (model.Descendants().FirstOrDefault(e => e.Name.LocalName == "dataModelExt") is { } ext && Attribute(ext, "relId") is { } drawingId &&
+                        rels.TryGetValue(drawingId, out var target)) drawn = target.Target;
+                }
+                drawn ??= rels.Values.Where(r => r.Type.EndsWith("/diagramDrawing", StringComparison.Ordinal)).Select(r => r.Target).SingleOrDefaultIfMany();
+                if (drawn is null || entry(drawn) is null) { budget.Unsupported++; continue; }
+                XDocument shapes;
+                using (var reader = open(drawn)) shapes = XDocument.Load(reader);
+                var frameSize = Point(Child(Child(content, "xfrm"), "ext"), "cx", "cy");
+                if (shapes.Descendants().FirstOrDefault(e => e.Name.LocalName == "spTree") is { } tree && frameSize.X > 0 && frameSize.Y > 0)
+                    Group(tree, placed, [0, 0, 1, 1], 0, ((0, 0), frameSize));
+            }
             else if (content?.Name.LocalName == "graphicFrame")
             {
                 var chartRef = content.Descendants().FirstOrDefault(e => e.Name.LocalName == "chart");
@@ -66,12 +87,13 @@ internal static class SheetDrawings
         return result;
 
         // A group's shapes and pictures, each with its box within the anchor (frame: the group's box as fractions of it).
-        void Group(XElement group, SheetPicture anchorAt, double[] frame, int depth)
+        // space: the children's coordinate space when the group has no transform of its own (SmartArt).
+        void Group(XElement group, SheetPicture anchorAt, double[] frame, int depth, ((double X, double Y) Offset, (double X, double Y) Size)? space = null)
         {
             var transform = Child(Child(group, "grpSpPr"), "xfrm");
             var (offset, size) = (Point(Child(transform, "off"), "x", "y"), Point(Child(transform, "ext"), "cx", "cy"));
             var (childOffset, childSize) = (Point(Child(transform, "chOff"), "x", "y"), Point(Child(transform, "chExt"), "cx", "cy"));
-            if (childSize.X <= 0 || childSize.Y <= 0) (childOffset, childSize) = (offset, size);
+            if (childSize.X <= 0 || childSize.Y <= 0) (childOffset, childSize) = space is { } given ? given : (offset, size);
             foreach (var child in group.Elements().Where(e => e.Name.LocalName is "sp" or "cxnSp" or "pic" or "grpSp").Take(500))
             {
                 if (result.Count >= MaxPictures) return;
@@ -107,6 +129,8 @@ internal static class SheetDrawings
             }
         }
     }
+
+    private static string? SingleOrDefaultIfMany(this IEnumerable<string> items) { var list = items.Distinct().Take(2).ToList(); return list.Count == 1 ? list[0] : null; }
 
     private static (double X, double Y) Point(XElement? element, string x, string y) => (Number(Attribute(element, x)), Number(Attribute(element, y)));
 

@@ -483,6 +483,57 @@ export async function generateXlsx({ large }) {
       rules: SAFE_RULES, notes: "Two linked pictures (web address and network share) must never be fetched; the notice says they are not loaded." });
   }
 
+  // SmartArt (after 0.9.0): the shapes workbook with a basic process diagram added, written by hand the way Excel stores
+  // one: data, layout, style and colour parts, plus the drawn copy of the diagram (diagrams/drawing1.xml) that the
+  // viewer shows. Proves the reader, not fidelity to Excel's own layout.
+  {
+    const zip = await JSZip.loadAsync(fs.readFileSync(path.join(CORPUS, "xlsx", "shapes.xlsx")));
+    const drawingPath = "xl/drawings/drawing1.xml", relsPath = "xl/drawings/_rels/drawing1.xml.rels";
+    const R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+    const rel = (id, type, target) => `<Relationship Id="${id}" Type="${type}" Target="${target}"/>`;
+    const rels = (zip.file(relsPath) ? await zip.file(relsPath).async("string") : `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>`)
+      .replace("</Relationships>", rel("rIdDm", `${R}/diagramData`, "../diagrams/data1.xml") + rel("rIdLo", `${R}/diagramLayout`, "../diagrams/layout1.xml") +
+        rel("rIdQs", `${R}/diagramQuickStyle`, "../diagrams/quickStyle1.xml") + rel("rIdCs", `${R}/diagramColors`, "../diagrams/colors1.xml") +
+        rel("rIdDd", "http://schemas.microsoft.com/office/2007/relationships/diagramDrawing", "../diagrams/drawing1.xml") + "</Relationships>");
+    zip.file(relsPath, rels);
+    const frame = `<xdr:twoCellAnchor><xdr:from><xdr:col>1</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>20</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from><xdr:to><xdr:col>7</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>26</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to>` +
+      `<xdr:graphicFrame macro=""><xdr:nvGraphicFramePr><xdr:cNvPr id="60" name="Diagram 1"/><xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr><xdr:xfrm><a:off x="0" y="0"/><a:ext cx="3657600" cy="1143000"/></xdr:xfrm>` +
+      `<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/diagram"><dgm:relIds xmlns:dgm="http://schemas.openxmlformats.org/drawingml/2006/diagram" xmlns:r="${R}" r:dm="rIdDm" r:lo="rIdLo" r:qs="rIdQs" r:cs="rIdCs"/></a:graphicData></a:graphic></xdr:graphicFrame><xdr:clientData/></xdr:twoCellAnchor>`;
+    zip.file(drawingPath, (await zip.file(drawingPath).async("string")).replace("</xdr:wsDr>", frame + "</xdr:wsDr>"));
+    const dgm = `xmlns:dgm="http://schemas.openxmlformats.org/drawingml/2006/diagram" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"`;
+    const steps = ["Plan", "Build", "Hello SmartArt"];
+    zip.file("xl/diagrams/data1.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><dgm:dataModel ${dgm} xmlns:dsp="http://schemas.microsoft.com/office/drawing/2008/diagram"><dgm:ptLst>` +
+      `<dgm:pt modelId="{00000000-0000-0000-0000-000000000000}" type="doc"><dgm:prSet/><dgm:spPr/><dgm:t><a:bodyPr/><a:p><a:endParaRPr/></a:p></dgm:t></dgm:pt>` +
+      steps.map((s, i) => `<dgm:pt modelId="{00000000-0000-0000-0000-00000000000${i + 1}}"><dgm:prSet/><dgm:spPr/><dgm:t><a:bodyPr/><a:p><a:r><a:t>${s}</a:t></a:r></a:p></dgm:t></dgm:pt>`).join("") +
+      `</dgm:ptLst><dgm:cxnLst/><dgm:bg/><dgm:whole/><dgm:extLst><a:ext uri="http://schemas.microsoft.com/office/drawing/2008/diagram"><dsp:dataModelExt relId="rIdDd" minVer="http://schemas.openxmlformats.org/drawingml/2006/diagram"/></a:ext></dgm:extLst></dgm:dataModel>`);
+    zip.file("xl/diagrams/layout1.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><dgm:layoutDef ${dgm} uniqueId="urn:microsoft.com/office/officeart/2005/8/layout/process1"><dgm:title val=""/><dgm:desc val=""/><dgm:layoutNode name="Name0"/></dgm:layoutDef>`);
+    zip.file("xl/diagrams/quickStyle1.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><dgm:styleDef ${dgm} uniqueId="urn:microsoft.com/office/officeart/2005/8/quickstyle/simple1"><dgm:title val=""/><dgm:desc val=""/></dgm:styleDef>`);
+    zip.file("xl/diagrams/colors1.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><dgm:colorsDef ${dgm} uniqueId="urn:microsoft.com/office/officeart/2005/8/colors/accent1_2"><dgm:title val=""/><dgm:desc val=""/></dgm:colorsDef>`);
+    // The drawn copy: three rounded boxes and two arrows across the frame (3,657,600 by 1,143,000 EMU).
+    const box = (id, x, text) => `<dsp:sp modelId="{10000000-0000-0000-0000-00000000000${id}}"><dsp:nvSpPr><dsp:cNvPr id="0" name=""/><dsp:cNvSpPr/></dsp:nvSpPr>` +
+      `<dsp:spPr><a:xfrm><a:off x="${x}" y="228600"/><a:ext cx="914400" cy="685800"/></a:xfrm><a:prstGeom prst="roundRect"><a:avLst/></a:prstGeom><a:solidFill><a:schemeClr val="accent1"/></a:solidFill><a:ln w="12700"><a:solidFill><a:schemeClr val="lt1"/></a:solidFill></a:ln></dsp:spPr>` +
+      `<dsp:style><a:lnRef idx="2"><a:scrgbClr r="0" g="0" b="0"/></a:lnRef><a:fillRef idx="1"><a:scrgbClr r="0" g="0" b="0"/></a:fillRef><a:effectRef idx="0"><a:scrgbClr r="0" g="0" b="0"/></a:effectRef><a:fontRef idx="minor"><a:schemeClr val="lt1"/></a:fontRef></dsp:style>` +
+      `<dsp:txBody><a:bodyPr anchor="ctr"/><a:lstStyle/><a:p><a:pPr algn="ctr"/><a:r><a:rPr lang="en-US" sz="1400"/><a:t>${text}</a:t></a:r></a:p></dsp:txBody><dsp:txXfrm><a:off x="${x}" y="228600"/><a:ext cx="914400" cy="685800"/></dsp:txXfrm></dsp:sp>`;
+    const arrow = (id, x) => `<dsp:sp modelId="{20000000-0000-0000-0000-00000000000${id}}"><dsp:nvSpPr><dsp:cNvPr id="0" name=""/><dsp:cNvSpPr/></dsp:nvSpPr>` +
+      `<dsp:spPr><a:xfrm><a:off x="${x}" y="457200"/><a:ext cx="365760" cy="228600"/></a:xfrm><a:prstGeom prst="rightArrow"><a:avLst/></a:prstGeom><a:solidFill><a:schemeClr val="accent1"><a:tint val="60000"/></a:schemeClr></a:solidFill></dsp:spPr>` +
+      `<dsp:style><a:lnRef idx="0"><a:scrgbClr r="0" g="0" b="0"/></a:lnRef><a:fillRef idx="1"><a:scrgbClr r="0" g="0" b="0"/></a:fillRef><a:effectRef idx="0"><a:scrgbClr r="0" g="0" b="0"/></a:effectRef><a:fontRef idx="minor"><a:schemeClr val="lt1"/></a:fontRef></dsp:style><dsp:txBody><a:bodyPr/><a:lstStyle/><a:p><a:endParaRPr lang="en-US"/></a:p></dsp:txBody></dsp:sp>`;
+    zip.file("xl/diagrams/drawing1.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><dsp:drawing xmlns:dgm="http://schemas.openxmlformats.org/drawingml/2006/diagram" xmlns:dsp="http://schemas.microsoft.com/office/drawing/2008/diagram" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">` +
+      `<dsp:spTree><dsp:nvGrpSpPr><dsp:cNvPr id="0" name=""/><dsp:cNvGrpSpPr/></dsp:nvGrpSpPr><dsp:grpSpPr/>` +
+      box(1, 0, steps[0]) + arrow(1, 1005840) + box(2, 1463040, steps[1]) + arrow(2, 2468880) + box(3, 2743200, steps[2]) + `</dsp:spTree></dsp:drawing>`);
+    const types = await zip.file("[Content_Types].xml").async("string");
+    const override = (part, type) => `<Override PartName="${part}" ContentType="${type}"/>`;
+    zip.file("[Content_Types].xml", types.replace("</Types>",
+      override("/xl/diagrams/data1.xml", "application/vnd.openxmlformats-officedocument.drawingml.diagramData+xml") +
+      override("/xl/diagrams/layout1.xml", "application/vnd.openxmlformats-officedocument.drawingml.diagramLayout+xml") +
+      override("/xl/diagrams/quickStyle1.xml", "application/vnd.openxmlformats-officedocument.drawingml.diagramStyle+xml") +
+      override("/xl/diagrams/colors1.xml", "application/vnd.openxmlformats-officedocument.drawingml.diagramColors+xml") +
+      override("/xl/diagrams/drawing1.xml", "application/vnd.ms-office.drawingml.diagramDrawing+xml") + "</Types>"));
+    write("xlsx/smartart.xlsx", await stable(await zip.generateAsync({ type: "nodebuffer" })));
+    record({ id: "xlsx-smartart", file: "xlsx/smartart.xlsx", format: "xlsx", category: "complex", producer: `${producer}, SmartArt parts written by hand with JSZip`, licence,
+      expect: { result: "open", sheets: ["Notes"], text: ["Hello shapes"], drawings: [{ sheet: "Notes", pictures: 0, shapesAtLeast: 13, shapeTexts: ["Plan", "Build", "Hello SmartArt"] }] }, rules: SAFE_RULES,
+      notes: "A basic process diagram: its drawn copy (three boxes, two arrows) is shown as shapes in the diagram's frame." });
+  }
+
   // Windows metafiles (after 0.9.0): the pictures workbook with its picture replaced by an EMF and a second picture, a
   // WMF, both drawn by LibreOffice from images/complex.svg (scripts/make-legacy-office.ps1 makes them first).
   if (fs.existsSync(path.join(CORPUS, "media", "drawing.emf")) && fs.existsSync(path.join(CORPUS, "media", "drawing.wmf"))) {

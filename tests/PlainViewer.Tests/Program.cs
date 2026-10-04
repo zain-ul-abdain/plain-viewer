@@ -398,6 +398,13 @@ try
                             Check(sheet.Pictures.Where(p => p.Chart is not null).All(p => p.Chart!.Categories.Count > 0 && p.Chart.Series.All(s => s.Values.Count > 0 && s.Values.All(v => v is not null))));
                         }
                         Check(item.TryGetProperty("chartSheet", out _) == sheet.ChartSheet);
+                        // At least so many shapes, and these texts among them (SmartArt).
+                        var shapeList = sheet.Pictures.Where(p => p.Shape is not null).ToList();
+                        if (item.TryGetProperty("shapesAtLeast", out var least) && shapeList.Count < least.GetInt32()) throw new Exception($"{sheet.Name}: {shapeList.Count} shapes");
+                        if (item.TryGetProperty("shapeTexts", out var texts))
+                            foreach (var text in texts.EnumerateArray())
+                                if (!shapeList.Any(p => p.Shape!.Paragraphs.Any(x => x.Text == text.GetString()) && p.Part is { } part && part.All(v => v is >= -0.001 and <= 1.001)))
+                                    throw new Exception($"{sheet.Name}: no shape with '{text.GetString()}' inside its frame");
                         // Shapes as "geometry:fill:line:paragraph/paragraph" ("-" for none).
                         if (item.TryGetProperty("shapes", out var shapes))
                         {
