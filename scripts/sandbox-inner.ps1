@@ -80,7 +80,7 @@ try {
     'docx\attack-xxe.docx', 'docx\attack-zip-bomb.docx', 'docx\password.docx', 'docx\damaged-truncated.docx',
     'pptx\attack-zip-bomb.pptx', 'pptx\password.pptx', 'images\attack-pixel-bomb.png', 'images\tiff-named.png', 'images\not-a-picture.jpg') | ForEach-Object { '!' + (Join-Path $corpus $_) }
   # Protected Office files open with their test password (no dialog in the smoke test).
-  if ($webViews) { $open += 'xlsx\password.xlsx', 'docx\password.docx' | ForEach-Object { 'password=viewer-test|' + (Join-Path $corpus $_) } }
+  if ($webViews) { $open += 'xlsx\password.xlsx', 'docx\password.docx', 'xls\password.xls', 'doc\password.doc', 'odt\password-libreoffice.odt', 'ods\password.ods' | ForEach-Object { 'password=viewer-test|' + (Join-Path $corpus $_) } }
   $code = Run $app (@('--smoke-test') + $open + $refuse) (Join-Path $results 'smoke.txt')
   Get-Content (Join-Path $results 'smoke.txt') | ForEach-Object { Log "  $_" }
   Expect ($code -eq 0) "smoke test in the installed app: $($open.Count) opened, $($refuse.Count) refused (exit $code)"

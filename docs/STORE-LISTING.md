@@ -30,7 +30,7 @@ WHAT IT OPENS
 • Pictures: JPEG, PNG, GIF, BMP, icons, WebP, AVIF, SVG, TIFF (including multi-page scans) and iPhone photos (HEIC/HEIF)
 • Web pages (.html, saved .mht pages) and EPUB books, with scripts removed
 • Text and data: .txt, .csv, .tsv, Markdown, .json, .xml, .log, .ini, .yaml, and source code files as text
-• Password-protected Word, Excel and PowerPoint files, after you type the password
+• Password-protected Word, Excel, PowerPoint and OpenDocument files, after you type the password
 
 READ COMFORTABLY
 • Word and PDF files as pages, with page thumbnails, a page number box, fit to width and fit to page.
@@ -54,7 +54,6 @@ GOOD TO KNOW
 • Presentations are shown as still slides: animations, transitions, audio and video do not play.
 • Word and PowerPoint files are laid out by the bundled LibreOffice, so pages can differ slightly from Microsoft Office, especially when a document uses fonts your PC lacks.
 • iPhone photos (HEIC) need Microsoft's HEIF Image Extensions and HEVC Video Extensions from the Microsoft Store.
-• Password-protected .doc, .xls, .ppt and OpenDocument files are not supported yet; password-protected PDFs and Word, Excel and PowerPoint (.docx, .xlsx, .pptx) files are.
 
 Plain Viewer is free and open source (MIT licence): https://github.com/zain-ul-abdain/plain-viewer
 

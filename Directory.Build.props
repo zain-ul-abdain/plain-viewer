@@ -1,6 +1,6 @@
 <Project><PropertyGroup><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors><Deterministic>true</Deterministic></PropertyGroup>
   <!-- Release version: shown in About and used for the installer's name and upgrade (scripts/package.ps1). -->
-  <PropertyGroup><Version>0.8.0</Version></PropertyGroup>
+  <PropertyGroup><Version>0.9.0</Version></PropertyGroup>
   <!-- Every program and library carries the product name and the plain version (no commit suffix): SignPath's signing
        rules check both on each file it signs. -->
   <PropertyGroup><Product>Plain Viewer</Product><IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion></PropertyGroup></Project>

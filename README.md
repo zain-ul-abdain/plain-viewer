@@ -29,7 +29,7 @@ Open a file, read it, close it. Offline, no Microsoft Office needed, and it neve
 | Text and data | .txt .csv .tsv .md .markdown .json .xml .log .ini .yaml .yml |
 | Code and project files (shown as text) | .c .h .cs .java .js .vb .css .php .asp .aspx .razor .config .csproj .sln |
 
-Files with macros open with the macros removed or ignored: they never run. Web pages and books open with their scripts removed; nothing they refer to outside the file is loaded. Password-protected Word, Excel and PowerPoint files open after you type the password. What each format shows, and what it does not, is in [docs/SUPPORT.md](docs/SUPPORT.md).
+Files with macros open with the macros removed or ignored: they never run. Web pages and books open with their scripts removed; nothing they refer to outside the file is loaded. Password-protected files (Word, Excel, PowerPoint, older .doc .xls .ppt, OpenDocument and PDF) open after you type the password; it is never saved. What each format shows, and what it does not, is in [docs/SUPPORT.md](docs/SUPPORT.md).
 
 ## How to install
 

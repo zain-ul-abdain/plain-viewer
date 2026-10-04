@@ -12,7 +12,7 @@ Plain Viewer opens documents so you can read them. It does nothing else.
 
 It opens these files:
 
-- **Documents:** PDF (.pdf); Word (.docx, .doc, and templates and macro files .dotx .docm .dotm); PowerPoint (.pptx, .ppt, and shows, templates and macro files .ppsx .potx .pptm .potm .ppsm); Excel (.xlsx, .xls, and .xlsm .xltx .xltm); OpenDocument (.odt .ods .odp, templates .ott .ots, and flat .fods); Rich Text (.rtf); Word and Excel 97-2003 templates (.dot .xlt). Password-protected Word, Excel and PowerPoint files open after you type the password.
+- **Documents:** PDF (.pdf); Word (.docx, .doc, and templates and macro files .dotx .docm .dotm); PowerPoint (.pptx, .ppt, and shows, templates and macro files .ppsx .potx .pptm .potm .ppsm); Excel (.xlsx, .xls, and .xlsm .xltx .xltm); OpenDocument (.odt .ods .odp, templates .ott .ots, and flat .fods); Rich Text (.rtf); Word and Excel 97-2003 templates (.dot .xlt). Password-protected Word, Excel, PowerPoint (including .doc .xls .ppt) and OpenDocument files open after you type the password.
 - **Pictures:** JPEG (.jpg .jpeg .jfif), PNG, GIF, BMP, icons (.ico), WebP, AVIF, SVG, TIFF (.tif .tiff, including multi-page scans) and iPhone photos (.heic .heif).
 - **Web pages and books:** web pages (.html .htm .xhtml), saved web pages (.mht .mhtml) and EPUB books. Scripts are removed and never run; pictures and styles stored outside the file are not loaded.
 - **Text and data:** text (.txt), CSV and tab-separated files (.tsv), Markdown (.md .markdown), JSON, XML, log files (.log), settings files (.ini), YAML (.yaml .yml), and source code and project files (.c .h .cs .java .js .vb .css .php .asp .aspx .razor .config .csproj .sln), shown as text.
