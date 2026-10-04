@@ -113,7 +113,7 @@ export async function generateXlsx({ large }) {
         hiddenColumns: ["E"], defaultRowHeight: 15, rowHeights: [{ row: 4, points: 45 }] },
       rules: SAFE_RULES, notes: "Theme fill: accent1 of the Office 2007 theme exceljs writes (#4f81bd) lightened by 40% is #95b3d7, as Excel shows it. Wrapped text shows its first line (row heights are not applied). A5 must spill over B5:D5; A6 must not." });
   }
-  // Conditional formatting, worked out from saved values; the expression rule needs a formula and is not shown.
+  // Conditional formatting, worked out from saved values; the expression rule F2>2 is evaluated for each cell (after 0.9.0).
   {
     const wb = workbook();
     const ws = wb.addWorksheet("Rules");
@@ -147,9 +147,8 @@ export async function generateXlsx({ large }) {
           { ref: "C2", bar: "0 #638ec6" }, { ref: "C7", bar: "100 #638ec6" },
           { ref: "D2", icon: "arrow-down red" }, { ref: "D4", icon: "arrow-right yellow" }, { ref: "D7", icon: "arrow-up green" },
           { ref: "E2", italic: true }, { ref: "E3", italic: null }, { ref: "E4", italic: true },
-          { ref: "F7", fill: null }],
-        workbookNotice: "1 conditional formatting rule is not shown" },
-      rules: SAFE_RULES, notes: "Rules applied to saved values: cell value, colour scale, data bar, icon set, text contains. The formula (expression) rule is counted in the notice and not shown." });
+          { ref: "F4", fill: null }, { ref: "F5", fill: "#ffeb9c" }, { ref: "F7", fill: "#ffeb9c" }] },
+      rules: SAFE_RULES, notes: "Rules applied to saved values: cell value, colour scale, data bar, icon set, text contains, and the formula rule F2>2 (relative: F5 to F7 hold 3 to 5)." });
   }
   // More conditional formatting rule kinds: between, bottom N, top percent, below average, blanks and errors, a
   // three-colour scale, traffic lights, rating bars without the value, duplicates and unique values (written as Excel

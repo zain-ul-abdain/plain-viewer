@@ -200,16 +200,45 @@ internal sealed class ConditionalFormats(WorkbookStyles? workbook = null)
         var dxf = rule.Format;
         Func<long, Overlay, bool> When(Func<long, bool> test) => (key, overlay) => { if (!test(key)) return false; ApplyDxf(dxf, overlay); return true; };
         bool Blank(long key) => text(key).Trim().Length == 0;
+        // A cell's saved value for formulas: an error, a number, TRUE/FALSE, text, or null when empty.
+        object? CellValue(int row, int column)
+        {
+            long key = Key(row, column);
+            if (errors.Contains(key)) return ConditionFormula.Error.Value;
+            if (number(key) is double n) return n;
+            string t = text(key);
+            return t.Length == 0 ? null : t.Equals("TRUE", StringComparison.OrdinalIgnoreCase) ? true : t.Equals("FALSE", StringComparison.OrdinalIgnoreCase) ? false : t;
+        }
+        int originRow = rule.Ranges.Count > 0 ? rule.Ranges[0][0] : 0, originColumn = rule.Ranges.Count > 0 ? rule.Ranges[0][1] : 0;
+        int RowOf(long key) => (int)(key >> 16);
+        int ColumnOf(long key) => (int)(key & 0xFFFF);
         if (rule.Type is "containsText" or "notContainsText" or "beginsWith" or "endsWith" && rule.Text.Length == 0) return null;
         switch (rule.Type)
         {
+            case "expression":
+                {
+                    if (rule.Formulas.Count == 0 || ConditionFormula.Parse(rule.Formulas[0]) is not { } formula) return null;
+                    return When(key => formula.IsTrue(RowOf(key), ColumnOf(key), originRow, originColumn, CellValue));
+                }
             case "cellIs":
                 {
-                    var constants = rule.Formulas.Select(Constant).ToList();
-                    if (constants.Count == 0 || constants.Any(c => c is null)) return null;
-                    var a = constants[0]!.Value; var b = constants.Count > 1 ? constants[1]!.Value : a;
+                    // Each operand: a constant, or a formula worked out for the cell (relative to the rule's first cell).
+                    var operands = new List<Func<long, (double? Number, string? Text)>>();
+                    foreach (var source in rule.Formulas)
+                    {
+                        if (Constant(source) is { } constant) { operands.Add(_ => constant); continue; }
+                        if (ConditionFormula.Parse(source) is not { } formula) return null;
+                        operands.Add(key => formula.Evaluate(RowOf(key), ColumnOf(key), originRow, originColumn, CellValue) switch
+                        {
+                            double d => (d, null), string s => (null, s), bool flag => (flag ? 1 : 0, null), null => (0, null), _ => (double.NaN, null)
+                        });
+                    }
+                    if (operands.Count == 0) return null;
+                    var first = operands[0]; var second = operands.Count > 1 ? operands[1] : first;
                     return When(key =>
                     {
+                        var a = first(key); var b = second(key);
+                        if (a.Number is double.NaN || b.Number is double.NaN) return false;      // the formula gave an error
                         int ca = Compare(key, a), cb = Compare(key, b);
                         return rule.Operator switch
                         {

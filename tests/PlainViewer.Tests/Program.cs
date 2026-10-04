@@ -603,6 +603,23 @@ try
         var sheet = WithPassword("viewer-test", () => LegacySpreadsheets.Load(Path.Combine(corpus, "ods", "password.ods")));
         Check(sheet.Kind == "sheet" && sheet.Sheets.Count > 0 && sheet.Sheets[0].Rows.Count > 0);
     });
+    Test("Conditional formatting formulas: relative and fixed references, functions, and formulas that are not supported", () =>
+    {
+        // A small sheet: column A numbers, B text, C flags; rows 1-5 (zero-based 0-4).
+        object?[,] sheet = { { 10.0, "Yes", true }, { 150.0, "No", false }, { 10.0, "yes", null }, { 3.0, "Box", true }, { 200.0, null, false } };
+        object? Cell(int r, int c) => r < sheet.GetLength(0) && c < sheet.GetLength(1) ? sheet[r, c] : null;
+        bool At(string formula, int row, int column = 0) => ConditionFormula.Parse(formula)!.IsTrue(row, column, 0, 0, Cell);
+        Check(!At("$A1>100", 0) && At("$A1>100", 1) && At("$A1>100", 4));                       // relative row
+        Check(At("MOD(ROW(),2)=0", 1) && !At("MOD(ROW(),2)=0", 2));
+        Check(At("AND($B1=\"yes\",$A1<100)", 0) && At("AND($B1=\"yes\",$A1<100)", 2) && !At("AND($B1=\"yes\",$A1<100)", 1));   // text without case
+        Check(At("COUNTIF($A$1:$A$5,$A1)>1", 0) && !At("COUNTIF($A$1:$A$5,$A1)>1", 1));         // duplicates
+        Check(At("ISNUMBER(SEARCH(\"o\",$B1))", 3) && !At("ISNUMBER(SEARCH(\"o\",$B1))", 0));
+        Check(At("$C1", 0) && !At("$C1", 1) && At("ISBLANK($B1)", 4) && At("LEN($B1)=3", 0));
+        Check(At("$A1>=AVERAGE($A$1:$A$5)", 1) && !At("$A1>=AVERAGE($A$1:$A$5)", 3) && At("SUM($A$1:$A$2)=160", 0));
+        Check(!At("1/0>0", 0) && At("IFERROR(1/0,7)=7", 0) && At("-$A1+20=10", 0) && At("50%=0.5", 0) && At("\"a\"&\"b\"=\"AB\"", 0));
+        foreach (var unsupported in new[] { "TODAY()>A1", "Sheet2!A1>1", "MyName>1", "INDIRECT(\"A1\")", "A1>", "(A1" })
+            Check(ConditionFormula.Parse(unsupported) is null);
+    });
     Test("Syntax colours: kinds on known text, and spans in order inside the text for every code and data fixture", () =>
     {
         string Kind(string text, string extension, string piece)

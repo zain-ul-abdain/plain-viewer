@@ -2,6 +2,7 @@
 
 ## Next version (not yet released)
 
+- **Conditional formatting written as formulas** (such as =$B2>100 or =MOD(ROW(),2)=0) is now shown in .xlsx files, worked out from the values saved in the file.
 - **More chart types**: radar, bubble and stock charts, and combined charts such as columns with a line over them.
 - **SmartArt diagrams** in Excel workbooks are shown, as Excel last drew them.
 - **EMF and WMF pictures** in spreadsheets (.xlsx, .xls and .ods) are now shown: logos and drawings pasted from other programs no longer go missing.

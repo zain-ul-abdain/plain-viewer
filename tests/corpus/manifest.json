@@ -507,18 +507,25 @@
             "italic": true
           },
           {
-            "ref": "F7",
+            "ref": "F4",
             "fill": null
+          },
+          {
+            "ref": "F5",
+            "fill": "#ffeb9c"
+          },
+          {
+            "ref": "F7",
+            "fill": "#ffeb9c"
           }
-        ],
-        "workbookNotice": "1 conditional formatting rule is not shown"
+        ]
       },
       "rules": {
         "network": "none",
         "sourceUnchanged": true,
         "filesBesideSource": "none"
       },
-      "notes": "Rules applied to saved values: cell value, colour scale, data bar, icon set, text contains. The formula (expression) rule is counted in the notice and not shown."
+      "notes": "Rules applied to saved values: cell value, colour scale, data bar, icon set, text contains, and the formula rule F2>2 (relative: F5 to F7 hold 3 to 5)."
     },
     {
       "id": "xlsx-conditional-more",
