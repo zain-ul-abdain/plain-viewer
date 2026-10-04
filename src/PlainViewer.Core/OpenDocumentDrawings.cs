@@ -270,8 +270,10 @@ internal static class OpenDocumentDrawings
         data.Type = kind switch
         {
             "chart:bar" => Property(plotStyle, "chart-properties", ChartNs, "vertical") == "true" ? "bar" : "column",
-            "chart:line" => "line", "chart:area" => "area", "chart:circle" => "pie", "chart:ring" => "doughnut", "chart:scatter" => "scatter", _ => ""
+            "chart:line" => "line", "chart:area" => "area", "chart:circle" => "pie", "chart:ring" => "doughnut", "chart:scatter" => "scatter",
+            "chart:radar" or "chart:filled-radar" => "radar", "chart:stock" => "stock", _ => ""
         };
+        data.Filled = kind == "chart:filled-radar";
         if (data.Type.Length == 0 || plot is null) { data.Type = "column"; data.Notice = "This kind of chart is not shown in this version."; return data; }
         data.Stacked = Property(plotStyle, "chart-properties", ChartNs, "stacked") == "true" || Property(plotStyle, "chart-properties", ChartNs, "percentage") == "true";
         data.Percent = Property(plotStyle, "chart-properties", ChartNs, "percentage") == "true";

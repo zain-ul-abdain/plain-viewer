@@ -166,7 +166,8 @@ public sealed class ShapeParagraph
 // A chart as the values saved in the file (the chart's own cache): never recalculated from the cells.
 public sealed class ChartData
 {
-    public string Type { get; set; } = "column";             // column, bar, line, area, pie, doughnut, scatter
+    public string Type { get; set; } = "column";             // column, bar, line, area, pie, doughnut, scatter, radar, bubble, stock
+    public bool Filled { get; set; }                         // radar charts drawn as filled areas
     public bool Stacked { get; set; }
     public bool Percent { get; set; }
     public string Title { get; set; } = "";
@@ -181,7 +182,9 @@ public sealed class ChartSeries
 {
     public string Name { get; set; } = "";
     public List<double?> Values { get; set; } = [];
-    public List<double?> X { get; set; } = [];                 // scatter charts
+    public List<double?> X { get; set; } = [];                 // scatter and bubble charts
+    public List<double?> Sizes { get; set; } = [];             // bubble charts
+    public string? Type { get; set; }                          // combined charts: this series' own kind (line, column, bar, area)
     public List<string> PointLabels { get; set; } = [];        // data labels, one per point ("" for none), ready to show
     public string? Color { get; set; }
 }

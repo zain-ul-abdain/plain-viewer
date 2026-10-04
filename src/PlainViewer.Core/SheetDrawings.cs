@@ -236,24 +236,35 @@ internal static class SheetDrawings
         if (chart is null) { data.Notice = "This chart could not be read."; return data; }
         if (Child(chart, "title") is { } title) data.Title = TitleText(title);
         var plot = Child(chart, "plotArea");
-        string[] known = ["barChart", "bar3DChart", "lineChart", "line3DChart", "areaChart", "area3DChart", "pieChart", "pie3DChart", "ofPieChart", "doughnutChart", "scatterChart"];
+        string[] known = ["barChart", "bar3DChart", "lineChart", "line3DChart", "areaChart", "area3DChart", "pieChart", "pie3DChart", "ofPieChart", "doughnutChart",
+            "scatterChart", "radarChart", "bubbleChart", "stockChart"];
         var kinds = plot?.Elements().Where(e => e.Name.LocalName.EndsWith("Chart", StringComparison.Ordinal)).ToList() ?? [];
         var kind = kinds.FirstOrDefault(e => known.Contains(e.Name.LocalName));
         if (kind is null) { data.Notice = kinds.Count == 0 ? "This chart has no data to show." : "This kind of chart is not shown in this version."; return data; }
-        if (kinds.Count > 1) data.Notice = "Only the first part of this combined chart is shown.";
+        static string TypeOf(XElement part) => part.Name.LocalName switch
+        {
+            "barChart" or "bar3DChart" => Attribute(Child(part, "barDir"), "val") == "bar" ? "bar" : "column",
+            "lineChart" or "line3DChart" => "line", "areaChart" or "area3DChart" => "area",
+            "doughnutChart" => "doughnut", "scatterChart" => "scatter", "radarChart" => "radar", "bubbleChart" => "bubble", "stockChart" => "stock", _ => "pie"
+        };
         string name = kind.Name.LocalName;
         string grouping = Attribute(Child(kind, "grouping"), "val") ?? "";
-        data.Type = name switch
+        data.Type = TypeOf(kind);
+        data.Filled = data.Type == "radar" && Attribute(Child(kind, "radarStyle"), "val") == "filled";
+        // Combined charts: columns (or bars) with lines or areas over the same categories are drawn together; other
+        // combinations show their first part with a notice.
+        var parts = new List<XElement> { kind };
+        foreach (var other in kinds.Where(k => k != kind))
         {
-            "barChart" or "bar3DChart" => Attribute(Child(kind, "barDir"), "val") == "bar" ? "bar" : "column",
-            "lineChart" or "line3DChart" => "line", "areaChart" or "area3DChart" => "area",
-            "doughnutChart" => "doughnut", "scatterChart" => "scatter", _ => "pie"
-        };
+            string otherType = known.Contains(other.Name.LocalName) ? TypeOf(other) : "";
+            if (data.Type is "column" or "bar" or "line" or "area" && otherType is "column" or "bar" or "line" or "area" && (otherType == "bar") == (data.Type == "bar")) parts.Add(other);
+            else data.Notice = "Only the first part of this combined chart is shown.";
+        }
         data.Stacked = grouping is "stacked" or "percentStacked";
         data.Percent = grouping == "percentStacked";
         int seriesIndex = 0;
         var labelParts = new List<(bool Value, bool Percent, bool Category, string? Format)>();
-        foreach (var series in kind.Elements().Where(e => e.Name.LocalName == "ser").Take(MaxSeries))
+        foreach (var (series, part) in parts.SelectMany(p => p.Elements().Where(e => e.Name.LocalName == "ser").Select(s => (s, p))).Take(MaxSeries))
         {
             // Data labels: the series' own settings, else the chart's; a label's number format is its own or the values'.
             var own = Child(series, "dLbls"); var shared = Child(kind, "dLbls");
@@ -261,12 +272,14 @@ internal static class SheetDrawings
             var labelFormat = Child(own ?? shared, "numFmt");
             labelParts.Add((Shows("showVal"), Shows("showPercent"), Shows("showCatName"),
                 labelFormat is not null && Attribute(labelFormat, "sourceLinked") is not ("1" or "true") ? Attribute(labelFormat, "formatCode")
-                    : Child(series, data.Type == "scatter" ? "yVal" : "val")?.Descendants().FirstOrDefault(e => e.Name.LocalName == "formatCode")?.Value));
+                    : Child(series, data.Type is "scatter" or "bubble" ? "yVal" : "val")?.Descendants().FirstOrDefault(e => e.Name.LocalName == "formatCode")?.Value));
             var item = new ChartSeries { Name = Text(Child(series, "tx")) ?? $"Series {seriesIndex + 1}", Color = Colour(Child(series, "spPr"), theme) };
-            if (data.Type == "scatter")
+            if (part != kind) item.Type = TypeOf(part);
+            if (data.Type is "scatter" or "bubble")
             {
                 item.X = Values(Child(series, "xVal"));
                 item.Values = Values(Child(series, "yVal"));
+                if (data.Type == "bubble") item.Sizes = Values(Child(series, "bubbleSize"));
             }
             else
             {
@@ -285,7 +298,7 @@ internal static class SheetDrawings
         {
             if (Child(axis, "title") is not { } axisTitle || Attribute(Child(axis, "delete"), "val") is "1" or "true") continue;
             string text = TitleText(axisTitle);
-            bool category = data.Type == "scatter" ? Attribute(Child(axis, "axPos"), "val") is "b" or "t" : axis.Name.LocalName != "valAx";
+            bool category = data.Type is "scatter" or "bubble" ? Attribute(Child(axis, "axPos"), "val") is "b" or "t" : axis.Name.LocalName != "valAx";
             if (category && data.CategoryTitle.Length == 0) data.CategoryTitle = text;
             else if (!category && data.ValueTitle.Length == 0) data.ValueTitle = text;
         }

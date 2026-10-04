@@ -483,6 +483,47 @@ export async function generateXlsx({ large }) {
       rules: SAFE_RULES, notes: "Two linked pictures (web address and network share) must never be fetched; the notice says they are not loaded." });
   }
 
+  // More chart kinds (after 0.9.0): the pictures workbook with its charts replaced by columns with a line over them, a
+  // filled radar chart, a stock chart (the chart sheet) and a fourth chart, a bubble chart. Hand-written DrawingML.
+  {
+    const zip = await JSZip.loadAsync(fs.readFileSync(path.join(CORPUS, "xlsx", "drawings.xlsx")));
+    const head = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><c:chart>`;
+    const title = text => `<c:title><c:tx><c:rich><a:bodyPr/><a:p><a:r><a:t>${text}</a:t></a:r></a:p></c:rich></c:tx><c:overlay val="0"/></c:title><c:autoTitleDeleted val="0"/>`;
+    const tail = `<c:legend><c:legendPos val="b"/><c:overlay val="0"/></c:legend><c:plotVisOnly val="1"/></c:chart></c:chartSpace>`;
+    const str = values => `<c:strCache><c:ptCount val="${values.length}"/>${values.map((v, i) => `<c:pt idx="${i}"><c:v>${v}</c:v></c:pt>`).join("")}</c:strCache>`;
+    const num = values => `<c:numCache><c:formatCode>General</c:formatCode><c:ptCount val="${values.length}"/>${values.map((v, i) => `<c:pt idx="${i}"><c:v>${v}</c:v></c:pt>`).join("")}</c:numCache>`;
+    const months = ["Jan", "Feb", "Mar", "Apr"];
+    const ser = (i, name, values, categories = months, colour) => `<c:ser><c:idx val="${i}"/><c:order val="${i}"/><c:tx><c:strRef><c:f>Sales!$A$${i + 1}</c:f>${str([name])}</c:strRef></c:tx>` +
+      (colour ? `<c:spPr><a:solidFill><a:srgbClr val="${colour}"/></a:solidFill></c:spPr>` : "") +
+      `<c:cat><c:strRef><c:f>Sales!$A$2:$A$5</c:f>${str(categories)}</c:strRef></c:cat><c:val><c:numRef><c:f>Sales!$B$2:$B$5</c:f>${num(values)}</c:numRef></c:val></c:ser>`;
+    const axes = `<c:catAx><c:axId val="1"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="b"/><c:crossAx val="2"/></c:catAx><c:valAx><c:axId val="2"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="l"/><c:majorGridlines/><c:crossAx val="1"/></c:valAx>`;
+    zip.file("xl/charts/chart1.xml", head + title("Sales and target") + `<c:plotArea><c:layout/><c:barChart><c:barDir val="col"/><c:grouping val="clustered"/><c:varyColors val="0"/>${ser(0, "North", [120, 150, 90, 170])}<c:axId val="1"/><c:axId val="2"/></c:barChart>` +
+      `<c:lineChart><c:grouping val="standard"/><c:varyColors val="0"/>${ser(1, "Target", [130, 130, 130, 130], months, "C00000")}<c:marker val="1"/><c:axId val="1"/><c:axId val="2"/></c:lineChart>${axes}</c:plotArea>` + tail);
+    zip.file("xl/charts/chart2.xml", head + title("Skills") + `<c:plotArea><c:layout/><c:radarChart><c:radarStyle val="filled"/><c:varyColors val="0"/>` +
+      ser(0, "Team A", [4, 3, 5, 2, 4], ["Design", "Code", "Test", "Docs", "Support"]) + ser(1, "Team B", [3, 5, 2, 4, 3], ["Design", "Code", "Test", "Docs", "Support"]) + `<c:axId val="1"/><c:axId val="2"/></c:radarChart>${axes}</c:plotArea>` + tail);
+    zip.file("xl/charts/chart3.xml", head + title("Share price") + `<c:plotArea><c:layout/><c:stockChart>${ser(0, "High", [52, 55, 54, 58])}${ser(1, "Low", [47, 49, 48, 51])}${ser(2, "Close", [50, 53, 49, 57])}<c:hiLowLines/><c:axId val="1"/><c:axId val="2"/></c:stockChart>${axes}</c:plotArea>` + tail);
+    const bubbleSer = (i, name, xs, ys, sizes) => `<c:ser><c:idx val="${i}"/><c:order val="${i}"/><c:tx><c:strRef><c:f>Sales!$A$1</c:f>${str([name])}</c:strRef></c:tx>` +
+      `<c:xVal><c:numRef><c:f>Sales!$B$2:$B$4</c:f>${num(xs)}</c:numRef></c:xVal><c:yVal><c:numRef><c:f>Sales!$C$2:$C$4</c:f>${num(ys)}</c:numRef></c:yVal><c:bubbleSize><c:numRef><c:f>Sales!$D$2:$D$4</c:f>${num(sizes)}</c:numRef></c:bubbleSize><c:bubble3D val="0"/></c:ser>`;
+    zip.file("xl/charts/chart4.xml", head + title("Markets") + `<c:plotArea><c:layout/><c:bubbleChart><c:varyColors val="0"/>${bubbleSer(0, "Products", [1, 3, 5], [20, 35, 15], [10, 40, 25])}<c:bubbleScale val="100"/><c:axId val="1"/><c:axId val="2"/></c:bubbleChart>` +
+      `<c:valAx><c:axId val="1"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="b"/><c:crossAx val="2"/></c:valAx><c:valAx><c:axId val="2"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="l"/><c:crossAx val="1"/></c:valAx></c:plotArea>` + tail);
+    // The fourth chart: a copy of the second chart's frame, lower down, pointing at chart4.
+    const drawingPath = "xl/drawings/drawing1.xml", relsPath = "xl/drawings/_rels/drawing1.xml.rels";
+    const drawing = await zip.file(drawingPath).async("string");
+    const anchors = drawing.match(/<xdr:twoCellAnchor[\s\S]*?<\/xdr:twoCellAnchor>/g) ?? [];
+    const second = anchors.find(a => a.includes("graphicFrame") && a !== anchors.find(b => b.includes("graphicFrame")));
+    const copy = second.replace(/<xdr:row>(\d+)<\/xdr:row>/g, (_, r) => `<xdr:row>${+r + 16}</xdr:row>`).replace(/r:id="[^"]+"/, 'r:id="rIdChart4"').replace(/name="[^"]*"/, 'name="Chart 4"').replace(/ id="\d+"/, ' id="44"');
+    zip.file(drawingPath, drawing.replace("</xdr:wsDr>", copy + "</xdr:wsDr>"));
+    zip.file(relsPath, (await zip.file(relsPath).async("string")).replace("</Relationships>",
+      `<Relationship Id="rIdChart4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart" Target="../charts/chart4.xml"/></Relationships>`));
+    zip.file("[Content_Types].xml", (await zip.file("[Content_Types].xml").async("string")).replace("</Types>",
+      `<Override PartName="/xl/charts/chart4.xml" ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/></Types>`));
+    write("xlsx/charts-more.xlsx", await stable(await zip.generateAsync({ type: "nodebuffer" })));
+    record({ id: "xlsx-charts-more", file: "xlsx/charts-more.xlsx", format: "xlsx", category: "complex", producer: `${producer}, charts as hand-written DrawingML with JSZip`, licence,
+      expect: { result: "open", sheets: ["Sales", "Trend"], text: ["Hello pictures"],
+        drawings: [{ sheet: "Sales", pictures: 1, charts: ["column:Sales and target:2", "radar:Skills:2", "bubble:Markets:1"] }, { sheet: "Trend", pictures: 0, charts: ["stock:Share price:3"], chartSheet: true }] }, rules: SAFE_RULES,
+      notes: "Columns with a line series over them (a combined chart), a filled radar chart, a bubble chart and a stock chart (high, low, close)." });
+  }
+
   // SmartArt (after 0.9.0): the shapes workbook with a basic process diagram added, written by hand the way Excel stores
   // one: data, layout, style and colour parts, plus the drawn copy of the diagram (diagrams/drawing1.xml) that the
   // viewer shows. Proves the reader, not fidelity to Excel's own layout.

@@ -441,7 +441,8 @@ function chartElement(chart, width, height) {
   let top = 10;
   if (chart.title) { root.append(svg("text", { x: width / 2, y: 26, "text-anchor": "middle", class: "chart-title" }, chart.title)); top = 40; }
   const round = chart.type === "pie" || chart.type === "doughnut";
-  const names = round ? chart.categories ?? [] : series.map(s => s.name);
+  // A stock chart's series are parts of one mark (high, low, close), so it has no legend.
+  const names = round ? chart.categories ?? [] : chart.type === "stock" ? [] : series.map(s => s.name);
   const legendHeight = names.length && height > 160 ? 24 : 0;
   if (legendHeight) {
     const legend = svg("g", { class: "chart-legend" });
@@ -456,7 +457,7 @@ function chartElement(chart, width, height) {
   }
   const area = { left: 8, top, right: width - 10, bottom: height - 10 - legendHeight };
   // Axis titles: the value axis along the left (the category axis for horizontal bars), the other along the bottom.
-  if (!round && series.length) {
+  if (!round && chart.type !== "radar" && series.length) {
     const horizontal = chart.type === "bar";
     const left = horizontal ? chart.categoryTitle : chart.valueTitle, bottom = horizontal ? chart.valueTitle : chart.categoryTitle;
     if (left) {
@@ -473,7 +474,9 @@ function chartElement(chart, width, height) {
     return root;
   }
   if (round) drawRound(root, chart, series[0], area);
-  else if (chart.type === "scatter") drawScatter(root, series, area);
+  else if (chart.type === "scatter" || chart.type === "bubble") drawScatter(root, series, area, chart.type === "bubble");
+  else if (chart.type === "radar") drawRadar(root, chart, series, area);
+  else if (chart.type === "stock") drawStock(root, chart, series, area);
   else drawAxes(root, chart, series, area);
   if (chart.notice) root.append(svg("text", { x: width - 8, y: height - 4 - legendHeight, "text-anchor": "end", class: "chart-note" }, chart.notice));
   return root;
@@ -610,10 +613,13 @@ function drawAxes(root, chart, series, area) {
   // Data labels, drawn last so that they lie over the bars and lines.
   const dataLabels = svg("g", { class: "chart-label" });
   const label = (text, x, y, anchor = "middle") => { if (text) dataLabels.append(svg("text", { x, y, "text-anchor": anchor }, text)); };
-  if (chart.type === "column" || chart.type === "bar") {
-    const gap = band * 0.25, inner = band - gap * 2, width = stacked ? inner : inner / series.length;
+  // Combined charts: each series may have its own kind (columns with lines over them).
+  const kindOf = s => s.type ?? chart.type, barLike = s => kindOf(s) === "column" || kindOf(s) === "bar";
+  const bars = series.map((s, k) => [s, k]).filter(([s]) => barLike(s));
+  if (bars.length) {
+    const gap = band * 0.25, inner = band - gap * 2, width = stacked ? inner : inner / bars.length;
     const base = Array(n).fill(0), baseDown = Array(n).fill(0);
-    series.forEach((s, k) => {
+    bars.forEach(([s, k], slot) => {
       const group = svg("g", { fill: colourOf(s, k) });
       for (let i = 0; i < n; i++) {
         if (!finite(s.values[i])) continue;
@@ -621,7 +627,7 @@ function drawAxes(root, chart, series, area) {
         let from = 0;
         if (stacked) { if (v >= 0) { from = base[i]; base[i] += v; } else { from = baseDown[i]; baseDown[i] += v; } }
         const a = scale(Math.min(Math.max(from, low), high)), b = scale(Math.min(Math.max(from + v, low), high));
-        const offset = band * i + gap + (stacked ? 0 : width * k);
+        const offset = band * i + gap + (stacked ? 0 : width * slot);
         const [start, length] = [Math.min(a, b), Math.abs(b - a)];
         group.append(horizontal
           ? svg("rect", { x: plot.left + start, y: plot.top + offset, width: length, height: width })
@@ -640,9 +646,11 @@ function drawAxes(root, chart, series, area) {
       }
       root.append(group);
     });
-  } else {
+  }
+  if (bars.length < series.length) {
     const base = Array(n).fill(0);
     const drawn = series.map((s, k) => {
+      if (barLike(s)) return [];
       const points = [];
       for (let i = 0; i < n; i++) {
         if (!finite(s.values[i]) && !stacked) { points.push(null); continue; }
@@ -656,7 +664,7 @@ function drawAxes(root, chart, series, area) {
       const colour = colourOf(series[k], k);
       const valid = points.filter(Boolean);
       if (!valid.length) return;
-      if (chart.type === "area") {
+      if (kindOf(series[k]) === "area") {
         const upper = valid.map(p => point(p.i, p.v)), lower = valid.map(p => point(p.i, stacked ? p.from : Math.max(low, Math.min(0, high)))).reverse();
         root.append(svg("polygon", { points: [...upper, ...lower].map(p => p.join(",")).join(" "), fill: colour, "fill-opacity": 0.85 }));
       } else {
@@ -674,7 +682,62 @@ function drawAxes(root, chart, series, area) {
     : svg("line", { x1: plot.left, x2: plot.right, y1: plot.bottom - zero, y2: plot.bottom - zero, class: "chart-axis" }));
 }
 
-function drawScatter(root, series, area) {
+// Radar charts: one spoke per category, values outwards from the centre, rings at the value ticks.
+function drawRadar(root, chart, series, area) {
+  const categories = chart.categories ?? [], n = Math.max(categories.length, ...series.map(s => s.values.length));
+  if (n < 3) return;
+  const values = series.flatMap(s => s.values.filter(finite));
+  const ticks = niceTicks(Math.min(0, ...values), Math.max(0, ...values)), low = ticks[0], high = ticks[ticks.length - 1];
+  const cx = (area.left + area.right) / 2, cy = (area.top + area.bottom) / 2 + 6;
+  const r = Math.max(10, Math.min(area.right - area.left, area.bottom - area.top) / 2 - 22);
+  const at = (i, v) => { const a = -Math.PI / 2 + i / n * Math.PI * 2, d = (v - low) / (high - low) * r; return [cx + d * Math.cos(a), cy + d * Math.sin(a)]; };
+  const grid = svg("g", { class: "chart-grid" });
+  for (const t of ticks) {
+    grid.append(svg("polygon", { points: Array.from({ length: n }, (_, i) => at(i, t).join(",")).join(" "), fill: "none" }));
+    grid.append(svg("text", { x: cx + 3, y: at(0, t)[1] + 4 }, tickLabel(t)));
+  }
+  for (let i = 0; i < n; i++) {
+    const [ex, ey] = at(i, high), [lx, ly] = at(i, high + (high - low) * 0.12);
+    grid.append(svg("line", { x1: cx, y1: cy, x2: ex, y2: ey }));
+    const text = categories[i] ?? "";
+    grid.append(svg("text", { x: lx, y: ly + 4, "text-anchor": Math.abs(lx - cx) < 4 ? "middle" : lx > cx ? "start" : "end" }, text.length > 16 ? text.slice(0, 15) + "…" : text));
+  }
+  root.append(grid);
+  series.forEach((s, k) => {
+    const colour = colourOf(s, k), points = Array.from({ length: n }, (_, i) => at(i, finite(s.values[i]) ? s.values[i] : low));
+    root.append(svg("polygon", { points: points.map(p => p.join(",")).join(" "), fill: chart.filled ? colour : "none", "fill-opacity": chart.filled ? 0.45 : 0, stroke: colour, "stroke-width": 2 }));
+    points.forEach((p, i) => { const text = s.pointLabels?.[i]; if (text) root.append(svg("text", { x: p[0], y: p[1] - 6, "text-anchor": "middle", class: "chart-label" }, text)); });
+  });
+}
+
+// Stock charts: per category a line from high to low, with the close marked to the right and (with four series)
+// the open to the left. Series order as Excel saves it: (open,) high, low, close.
+function drawStock(root, chart, series, area) {
+  const categories = chart.categories ?? [], n = Math.max(categories.length, ...series.map(s => s.values.length));
+  const four = series.length >= 4, [open, high, low, close] = four ? series.slice(0, 4) : [null, ...series.slice(0, 3)];
+  if (!high || !low || !close) { drawAxes(root, { ...chart, type: "line" }, series, area); return; }
+  const all = [open, high, low, close].filter(Boolean).flatMap(s => s.values.filter(finite));
+  if (!all.length) return;
+  const ticks = niceTicks(Math.min(...all), Math.max(...all)), bottom = ticks[0], top = ticks[ticks.length - 1];
+  const labelWidth = Math.min(80, Math.max(...ticks.map(t => measureChart(tickLabel(t))))) + 8;
+  const plot = { left: area.left + labelWidth, top: area.top, right: area.right, bottom: area.bottom - 18 };
+  const y = v => plot.bottom - (v - bottom) / (top - bottom) * (plot.bottom - plot.top), band = (plot.right - plot.left) / Math.max(1, n);
+  const grid = svg("g", { class: "chart-grid" });
+  for (const t of ticks) grid.append(svg("line", { x1: plot.left, x2: plot.right, y1: y(t), y2: y(t) }), svg("text", { x: plot.left - 6, y: y(t) + 4, "text-anchor": "end" }, tickLabel(t)));
+  const every = Math.max(1, Math.ceil(n / Math.max(1, Math.floor((plot.right - plot.left) / 60))));
+  for (let i = 0; i < n; i += every) grid.append(svg("text", { x: plot.left + band * (i + 0.5), y: plot.bottom + 14, "text-anchor": "middle" }, (categories[i] ?? "").slice(0, 16)));
+  root.append(grid);
+  const marks = svg("g", { stroke: colourOf(close, 0), "stroke-width": 2 });
+  for (let i = 0; i < n; i++) {
+    const h = high.values[i], l = low.values[i], c = close.values[i], x = plot.left + band * (i + 0.5), tick = Math.min(8, band / 3);
+    if (finite(h) && finite(l)) marks.append(svg("line", { x1: x, x2: x, y1: y(h), y2: y(l) }));
+    if (finite(c)) marks.append(svg("line", { x1: x, x2: x + tick, y1: y(c), y2: y(c) }));
+    if (open && finite(open.values[i])) marks.append(svg("line", { x1: x - tick, x2: x, y1: y(open.values[i]), y2: y(open.values[i]) }));
+  }
+  root.append(marks, svg("line", { x1: plot.left, x2: plot.right, y1: plot.bottom, y2: plot.bottom, class: "chart-axis" }));
+}
+
+function drawScatter(root, series, area, bubbles) {
   const xs = series.flatMap(s => (s.x?.length ? s.x : s.values.map((_v, i) => i + 1)).filter(finite));
   const ys = series.flatMap(s => s.values.filter(finite));
   if (!xs.length || !ys.length) return;
@@ -687,11 +750,16 @@ function drawScatter(root, series, area) {
   for (const t of yt) grid.append(svg("line", { x1: plot.left, x2: plot.right, y1: sy(t), y2: sy(t) }), svg("text", { x: plot.left - 6, y: sy(t) + 4, "text-anchor": "end" }, tickLabel(t)));
   for (const t of xt) grid.append(svg("text", { x: sx(t), y: plot.bottom + 14, "text-anchor": "middle" }, tickLabel(t)));
   root.append(grid, svg("line", { x1: plot.left, x2: plot.right, y1: plot.bottom, y2: plot.bottom, class: "chart-axis" }));
+  // Bubbles: the area follows the size, the largest bubble an eighth of the plot across.
+  const sizes = bubbles ? series.flatMap(s => (s.sizes ?? []).filter(v => finite(v) && v > 0)) : [];
+  const biggest = Math.max(1e-9, ...sizes), most = Math.min(plot.right - plot.left, plot.bottom - plot.top) / 8;
   series.forEach((s, k) => {
-    const group = svg("g", { fill: colourOf(s, k) });
+    const group = svg("g", { fill: colourOf(s, k), "fill-opacity": bubbles ? 0.75 : 1 });
     s.values.forEach((v, i) => {
       const xv = s.x?.length ? s.x[i] : i + 1;
-      if (finite(v) && finite(xv)) group.append(svg("circle", { cx: sx(xv), cy: sy(v), r: 3.5 }));
+      const size = bubbles ? s.sizes?.[i] : null;
+      const radius = bubbles ? (finite(size) && size > 0 ? Math.max(2, Math.sqrt(size / biggest) * most) : 0) : 3.5;
+      if (finite(v) && finite(xv) && radius > 0) group.append(svg("circle", { cx: sx(xv), cy: sy(v), r: radius }));
     });
     root.append(group);
   });

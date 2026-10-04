@@ -38,7 +38,7 @@ public static partial class LegacySpreadsheets
         private sealed class ChartSpec
         {
             public string Type = "", Title = "", CategoryTitle = "", ValueTitle = "";
-            public bool Stacked, Percent, Unsupported;
+            public bool Stacked, Percent, Unsupported, Filled;
             public int Groups;
             public readonly List<SeriesSpec> Series = [];
             public readonly SortedDictionary<int, string> CachedCategories = [];
@@ -125,7 +125,8 @@ public static partial class LegacySpreadsheets
                         break;
                     case 0x1019 when group == 0 && length >= 4: spec.Type = U16(data, at + 2) > 0 ? "doughnut" : "pie"; break;
                     case 0x101B when group == 0: spec.Type = "scatter"; break;
-                    case 0x103E or 0x1040 or 0x103F or 0x1066 when group == 0: spec.Unsupported = true; break;   // radar, surface, bar of pie
+                    case 0x103E or 0x1040 when group == 0: spec.Type = "radar"; spec.Filled = type == 0x1040; break;   // radar, filled radar
+                    case 0x103F or 0x1066 when group == 0: spec.Unsupported = true; break;                       // surface, bar of pie
                     case 0x1065 when length >= 2: cache = U16(data, at); break;                   // SIIndex: what the next cells hold
                     case 0x0203 when length >= 14 && cache is 1 or 2:
                         {
@@ -182,7 +183,7 @@ public static partial class LegacySpreadsheets
             foreach (var (placed, spec) in pendingCharts)
             {
                 var chart = placed.Chart = new ChartData { Title = spec.Title, CategoryTitle = spec.CategoryTitle, ValueTitle = spec.ValueTitle,
-                    Stacked = spec.Stacked, Percent = spec.Percent, Type = spec.Type.Length > 0 ? spec.Type : "column" };
+                    Stacked = spec.Stacked, Percent = spec.Percent, Filled = spec.Filled, Type = spec.Type.Length > 0 ? spec.Type : "column" };
                 var labelled = new List<(ChartSeries Item, int Flags)>();
                 if (spec.Unsupported || spec.Type.Length == 0) { chart.Notice = "This kind of chart is not shown in this version."; continue; }
                 if (spec.Groups > 1) chart.Notice = "Only the first part of this combined chart is shown.";
