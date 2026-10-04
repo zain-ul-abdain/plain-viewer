@@ -10,7 +10,7 @@ namespace PlainViewer.Core;
 public static class Spreadsheets
 {
     public const long SizeLimit = 256L * 1024 * 1024;
-    public static readonly string[] Extensions = [".xlsx", ".xlsm", ".xltx", ".xltm"];
+    public static readonly string[] Extensions = [".xlsx", ".xlsm", ".xltx", ".xltm", ".xlsb"];   // .xlsb: binary records (LegacySpreadsheets.ReadBinary)
     public static bool IsWorkbook(string path) => Extensions.Contains(Path.GetExtension(path).ToLowerInvariant());
     public const int MaxRowsPerSheet = 10_000, MaxColumns = 256, MaxCellsPerWorkbook = 300_000;
     public const string ResultUnavailable = "Result unavailable";
@@ -54,9 +54,9 @@ public static class Spreadsheets
         TextFiles.ValidateLocalPath(path);
         string extension = Path.GetExtension(path).ToLowerInvariant();
         // Templates and macro-enabled workbooks have the same parts as .xlsx; macros are never read, let alone run.
-        if (extension is ".xlsb" or ".xlam")
-            throw new DocumentException($"{extension} files are not supported yet. Save the workbook as .xlsx in a spreadsheet application to view it here.");
-        if (!Extensions.Contains(extension)) throw new DocumentException("Only Excel workbooks (.xlsx, .xlsm, .xltx, .xltm) open in the spreadsheet view.");
+        if (extension is ".xlam")
+            throw new DocumentException($"{extension} files (Excel add-ins) are not supported. Save the workbook as .xlsx in a spreadsheet application to view it here.");
+        if (!Extensions.Contains(extension)) throw new DocumentException("Only Excel workbooks (.xlsx, .xlsm, .xltx, .xltm, .xlsb) open in the spreadsheet view.");
 
         using var stream = LocalFiles.OpenRead(path);
         long length = stream.Length;
@@ -85,7 +85,8 @@ public static class Spreadsheets
             using var zip = new ZipArchive(package, ZipArchiveMode.Read, leaveOpen: true);
             // Sheet XML compresses well, so the total is generous; the ratio check still stops ZIP bombs.
             ArchiveSafety.Validate(zip, maximumBytes: 4L * 1024 * 1024 * 1024, maximumEntries: 10000, maximumRatio: 500);
-            view = new Reader(zip, culture, storeFolder).Read();
+            // A binary workbook (.xlsb) has the same package with binary parts; the content decides, not the name.
+            view = zip.GetEntry("xl/workbook.bin") is not null ? LegacySpreadsheets.ReadBinary(zip, culture, storeFolder) : new Reader(zip, culture, storeFolder).Read();
             if (zip.Entries.Any(e => OfficePackages.IsMacroPart(e.FullName)))
                 view.Notice = ("This workbook contains macros. They were ignored and never ran. " + view.Notice).Trim();
         }

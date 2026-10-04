@@ -50,7 +50,7 @@
           <uap:FileTypeAssociation Name="spreadsheets">
             <uap:DisplayName>Excel and other spreadsheets</uap:DisplayName>
             <uap:SupportedFileTypes>
-              <uap:FileType>.xlsx</uap:FileType><uap:FileType>.xlsm</uap:FileType><uap:FileType>.xltx</uap:FileType><uap:FileType>.xltm</uap:FileType>
+              <uap:FileType>.xlsx</uap:FileType><uap:FileType>.xlsm</uap:FileType><uap:FileType>.xltx</uap:FileType><uap:FileType>.xltm</uap:FileType><uap:FileType>.xlsb</uap:FileType>
               <uap:FileType>.ods</uap:FileType><uap:FileType>.xls</uap:FileType><uap:FileType>.xlt</uap:FileType><uap:FileType>.ots</uap:FileType><uap:FileType>.fods</uap:FileType>
             </uap:SupportedFileTypes>
           </uap:FileTypeAssociation>

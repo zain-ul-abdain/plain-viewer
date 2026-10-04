@@ -2,6 +2,7 @@
 
 ## Next version (not yet released)
 
+- **Excel binary workbooks (.xlsb)** open: values, saved formula results, number formats, column widths, merged cells and frozen panes.
 - **Conditional formatting written as formulas** (such as =$B2>100 or =MOD(ROW(),2)=0) is now shown in .xlsx, .xls and .ods files, worked out from the values saved in the file.
 - **More chart types**: radar, bubble and stock charts, and combined charts such as columns with a line over them.
 - **SmartArt diagrams** in Excel workbooks are shown, as Excel last drew them.
