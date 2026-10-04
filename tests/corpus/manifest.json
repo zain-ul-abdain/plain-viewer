@@ -3926,18 +3926,26 @@
             "italic": null
           },
           {
-            "ref": "F7",
+            "ref": "F4",
             "fill": null
+          },
+          {
+            "ref": "F5",
+            "fill": "#ffeb9c"
+          },
+          {
+            "ref": "F7",
+            "fill": "#ffeb9c"
           }
         ],
-        "workbookNotice": "2 conditional formatting rules are not shown"
+        "workbookNotice": "1 conditional formatting rule is not shown"
       },
       "rules": {
         "network": "none",
         "sourceUnchanged": true,
         "filesBesideSource": "none"
       },
-      "notes": "The conditional formatting workbook as .xls. LibreOffice keeps only the value rule and the formula rule as CF records (colour scale, data bar and icons are dropped) and writes the text rule with a type Excel 97-2003 does not define: the value rule is shown, the other two are counted in the notice."
+      "notes": "The conditional formatting workbook as .xls. LibreOffice keeps only the value rule and the formula rule as CF records (colour scale, data bar and icons are dropped) and writes the text rule with a type Excel 97-2003 does not define: the value rule and the formula rule (its tokens written out as F2>2) are shown, the text rule is counted in the notice."
     },
     {
       "id": "converted-ods-conditional-ods",
@@ -4010,18 +4018,25 @@
             "italic": null
           },
           {
-            "ref": "F7",
+            "ref": "F4",
             "fill": null
+          },
+          {
+            "ref": "F5",
+            "fill": "#ffeb9c"
+          },
+          {
+            "ref": "F7",
+            "fill": "#ffeb9c"
           }
-        ],
-        "workbookNotice": "1 conditional formatting rule is not shown"
+        ]
       },
       "rules": {
         "network": "none",
         "sourceUnchanged": true,
         "filesBesideSource": "none"
       },
-      "notes": "The conditional formatting workbook as .ods (calcext:conditional-formats with styles named by display name): every rule except the formula rule is shown; LibreOffice keeps its own data bar lengths (10 to 90)."
+      "notes": "The conditional formatting workbook as .ods (calcext:conditional-formats with styles named by display name): every rule is shown, the formula rule formula-is([.F2]>2) relative to its base cell; LibreOffice keeps its own data bar lengths (10 to 90)."
     },
     {
       "id": "converted-ppt-simple-ppt",

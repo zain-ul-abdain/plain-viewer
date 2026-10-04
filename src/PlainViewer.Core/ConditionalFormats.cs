@@ -2,10 +2,10 @@ using System.Globalization;
 using System.Xml.Linq;
 namespace PlainViewer.Core;
 
-// Conditional formatting of an .xlsx worksheet, worked out from the values saved in the cells: the viewer never
-// evaluates formulas, so rules written as formulas ("expression" rules, and value rules that compare with a formula)
-// and rules that depend on today's date ("dates occurring") are counted and not shown. Shown: value comparisons with
-// constants, text contains/begins/ends, blanks and errors, top and bottom (count or percent), above and below average,
+// Conditional formatting of an .xlsx worksheet, worked out from the values saved in the cells: cell formulas are never
+// recalculated. Rules written as formulas ("expression" rules, and value rules that compare with a formula) are worked
+// out by ConditionFormula over the saved values; rules it cannot work out and rules that depend on today's date
+// ("dates occurring") are counted and not shown. Shown: value comparisons with constants or formulas, text contains/begins/ends, blanks and errors, top and bottom (count or percent), above and below average,
 // duplicate and unique values, colour scales, data bars and icon sets. Rules apply in priority order; a property set by
 // a rule with higher priority is kept, and "stop if true" ends the rules for that cell. The results become ordinary
 // cell styles (WorkbookStyles.Intern), so the grid page only draws checked styles. The .xls and .ods readers add the
@@ -27,6 +27,7 @@ internal sealed class ConditionalFormats(WorkbookStyles? workbook = null)
         public readonly List<string?> Colours = [];
         public string IconSet = "3TrafficLights1";
         public string? Extension;                          // id of the rule's Excel 2010 copy (data bar lengths)
+        public int[]? Origin;                              // the cell formulas are relative to (default: the first range's top left)
         public readonly List<int[]> Ranges = [];
     }
 
@@ -209,7 +210,7 @@ internal sealed class ConditionalFormats(WorkbookStyles? workbook = null)
             string t = text(key);
             return t.Length == 0 ? null : t.Equals("TRUE", StringComparison.OrdinalIgnoreCase) ? true : t.Equals("FALSE", StringComparison.OrdinalIgnoreCase) ? false : t;
         }
-        int originRow = rule.Ranges.Count > 0 ? rule.Ranges[0][0] : 0, originColumn = rule.Ranges.Count > 0 ? rule.Ranges[0][1] : 0;
+        int originRow = rule.Origin?[0] ?? (rule.Ranges.Count > 0 ? rule.Ranges[0][0] : 0), originColumn = rule.Origin?[1] ?? (rule.Ranges.Count > 0 ? rule.Ranges[0][1] : 0);
         int RowOf(long key) => (int)(key >> 16);
         int ColumnOf(long key) => (int)(key & 0xFFFF);
         if (rule.Type is "containsText" or "notContainsText" or "beginsWith" or "endsWith" && rule.Text.Length == 0) return null;

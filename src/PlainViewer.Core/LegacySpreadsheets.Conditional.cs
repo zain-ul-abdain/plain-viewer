@@ -80,8 +80,20 @@ public static partial class LegacySpreadsheets
                 p += 4;
             }
             if (Has(30)) p += 2;                                                      // protection
-            string? first = cce1 > 0 && p + cce1 <= end ? Constant(p, cce1) : null;
-            string? second = cce2 > 0 && p + cce1 + cce2 <= end ? Constant(p + cce1, cce2) : null;
+            // Each formula as a constant, or as formula text (worked out per cell by ConditionFormula).
+            int originRow = ranges[0][0], originColumn = ranges[0][1];
+            string? first = cce1 > 0 && p + cce1 <= end ? Constant(p, cce1) ?? FormulaText(p, cce1, originRow, originColumn) : null;
+            string? second = cce2 > 0 && p + cce1 + cce2 <= end ? Constant(p + cce1, cce2) ?? FormulaText(p + cce1, cce2, originRow, originColumn) : null;
+            if (kind == 2)
+            {
+                // A formula rule: the format applies where the formula is true.
+                if (first is null) { target.NotShown++; return; }
+                var formulaRule = new ConditionalFormats.Rule { Type = "expression", Format = format, Priority = priority, Stop = true };
+                formulaRule.Formulas.Add(first);
+                formulaRule.Ranges.AddRange(ranges);
+                target.Add(formulaRule);
+                return;
+            }
             string? operation = comparison switch
             {
                 1 => "between", 2 => "notBetween", 3 => "equal", 4 => "notEqual",
@@ -95,6 +107,124 @@ public static partial class LegacySpreadsheets
             rule.Ranges.AddRange(ranges);
             target.Add(rule);
         }
+
+        // A parsed formula ([MS-XLS] 2.5.198, reverse Polish tokens) written out as formula text for ConditionFormula:
+        // constants, operators, parentheses, references and areas on this sheet (ptgRef/ptgArea, and the relative
+        // ptgRefN/ptgAreaN, whose offsets count from the rule's first cell) and the functions in FunctionNames. Null for
+        // anything else, so the rule stays counted as not shown.
+        private string? FormulaText(int at, int length, int originRow, int originColumn)
+        {
+            var stack = new Stack<string>();
+            int p = at, end = at + length;
+            static string Column(int c) { var s = ""; for (c++; c > 0; c = (c - 1) / 26) s = (char)('A' + (c - 1) % 26) + s; return s; }
+            string Cell(int row, int column, bool rowRelative, bool columnRelative) =>
+                (columnRelative ? "" : "$") + Column(column) + (rowRelative ? "" : "$") + (row + 1).ToString(CultureInfo.InvariantCulture);
+            (int Row, int Column, bool RowRel, bool ColRel)? Reference(int row, int field, bool offsets)
+            {
+                bool rowRelative = (field & 0x8000) != 0, columnRelative = (field & 0x4000) != 0;
+                int column = field & 0x3FFF;
+                if (offsets)
+                {
+                    if (rowRelative) row = originRow + (short)row;
+                    if (columnRelative) column = originColumn + (sbyte)(column & 0xFF);
+                }
+                return row < 0 || column < 0 || row > 1_048_575 || column > 16_383 ? null : (row, column, rowRelative, columnRelative);
+            }
+            try
+            {
+                while (p < end)
+                {
+                    int token = data[p++];
+                    int baseToken = token >= 0x20 ? (token & 0x1F) | 0x20 : token;       // the reference class does not matter here
+                    switch (baseToken)
+                    {
+                        case 0x03 or 0x04 or 0x05 or 0x06 or 0x07 or 0x08 or 0x09 or 0x0A or 0x0B or 0x0C or 0x0D or 0x0E:
+                            {
+                                string right = stack.Pop(), left = stack.Pop();
+                                string op = token switch { 0x03 => "+", 0x04 => "-", 0x05 => "*", 0x06 => "/", 0x07 => "^", 0x08 => "&", 0x09 => "<", 0x0A => "<=", 0x0B => "=", 0x0C => ">=", 0x0D => ">", _ => "<>" };
+                                stack.Push(left + op + right);
+                                break;
+                            }
+                        case 0x12: break;                                                   // unary plus
+                        case 0x13: stack.Push("-" + stack.Pop()); break;
+                        case 0x14: stack.Push(stack.Pop() + "%"); break;
+                        case 0x15: stack.Push("(" + stack.Pop() + ")"); break;
+                        case 0x16: stack.Push(""); break;                                   // missing argument
+                        case 0x17:
+                            {
+                                int count = data[p]; bool wide = (data[p + 1] & 1) != 0;
+                                string text = wide ? Encoding.Unicode.GetString(data, p + 2, count * 2) : Encoding.Latin1.GetString(data, p + 2, count);
+                                p += 2 + count * (wide ? 2 : 1);
+                                stack.Push("\"" + text.Replace("\"", "\"\"") + "\"");
+                                break;
+                            }
+                        case 0x19:
+                            {
+                                int attributes = data[p]; int data2 = BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(p + 1)); p += 3;
+                                if ((attributes & 0x04) != 0) p += 2 * (data2 + 1);                // choose: jump table
+                                if ((attributes & 0x10) != 0) stack.Push("SUM(" + stack.Pop() + ")");
+                                break;                                                       // spaces, if and goto: layout only
+                            }
+                        case 0x1D: stack.Push(data[p++] != 0 ? "TRUE" : "FALSE"); break;
+                        case 0x1E: stack.Push(BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(p)).ToString(CultureInfo.InvariantCulture)); p += 2; break;
+                        case 0x1F:
+                            {
+                                double n = BinaryPrimitives.ReadDoubleLittleEndian(data.AsSpan(p)); p += 8;
+                                if (!double.IsFinite(n)) return null;
+                                stack.Push(n.ToString("R", CultureInfo.InvariantCulture));
+                                break;
+                            }
+                        case 0x21 or 0x22:
+                            {
+                                int argc, id;
+                                if (baseToken == 0x22) { argc = data[p] & 0x7F; id = BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(p + 1)) & 0x7FFF; p += 3; }
+                                else { id = BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(p)); p += 2; argc = -1; }
+                                if (!FunctionNames.TryGetValue(id, out var function)) return null;
+                                if (argc < 0) argc = function.Arguments;
+                                if (argc < 0 || argc > stack.Count) return null;
+                                var arguments = new string[argc];
+                                for (int i = argc - 1; i >= 0; i--) arguments[i] = stack.Pop();
+                                stack.Push(function.Name + "(" + string.Join(",", arguments) + ")");
+                                break;
+                            }
+                        case 0x24 or 0x2C:
+                            {
+                                var cell = Reference(BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(p)), BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(p + 2)), baseToken == 0x2C);
+                                p += 4;
+                                if (cell is not { } c) return null;
+                                stack.Push(Cell(c.Row, c.Column, c.RowRel, c.ColRel));
+                                break;
+                            }
+                        case 0x25 or 0x2D:
+                            {
+                                int r1 = BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(p)), r2 = BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(p + 2));
+                                int f1 = BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(p + 4)), f2 = BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(p + 6));
+                                p += 8;
+                                if (Reference(r1, f1, baseToken == 0x2D) is not { } a || Reference(r2, f2, baseToken == 0x2D) is not { } b) return null;
+                                stack.Push(Cell(a.Row, a.Column, a.RowRel, a.ColRel) + ":" + Cell(b.Row, b.Column, b.RowRel, b.ColRel));
+                                break;
+                            }
+                        default: return null;                                                // names, other sheets, arrays, errors…
+                    }
+                }
+            }
+            catch (InvalidOperationException) { return null; }                              // a malformed token list
+            catch (ArgumentException) { return null; }
+            catch (IndexOutOfRangeException) { return null; }
+            return stack.Count == 1 ? stack.Pop() : null;
+        }
+
+        // Built-in functions by their number ([MS-XLS] 2.5.198.17 Ftab) and fixed argument count (-1: variable).
+        private static readonly Dictionary<int, (string Name, int Arguments)> FunctionNames = new()
+        {
+            [0] = ("COUNT", -1), [1] = ("IF", -1), [2] = ("ISNA", 1), [3] = ("ISERROR", 1), [4] = ("SUM", -1), [5] = ("AVERAGE", -1), [6] = ("MIN", -1),
+            [7] = ("MAX", -1), [8] = ("ROW", -1), [9] = ("COLUMN", -1), [24] = ("ABS", 1), [25] = ("INT", 1), [27] = ("ROUND", 2), [31] = ("MID", 3),
+            [32] = ("LEN", 1), [33] = ("VALUE", 1), [34] = ("TRUE", 0), [35] = ("FALSE", 0), [36] = ("AND", -1), [37] = ("OR", -1), [38] = ("NOT", 1),
+            [39] = ("MOD", 2), [82] = ("SEARCH", -1), [112] = ("LOWER", 1), [113] = ("UPPER", 1), [115] = ("LEFT", -1), [116] = ("RIGHT", -1),
+            [117] = ("EXACT", 2), [118] = ("TRIM", 1), [124] = ("FIND", -1), [126] = ("ISERR", 1), [127] = ("ISTEXT", 1), [128] = ("ISNUMBER", 1),
+            [129] = ("ISBLANK", 1), [169] = ("COUNTA", -1), [190] = ("ISNONTEXT", 1), [198] = ("ISLOGICAL", 1), [212] = ("ROUNDUP", 2),
+            [213] = ("ROUNDDOWN", 2), [346] = ("COUNTIF", 2), [347] = ("COUNTBLANK", 1),
+        };
 
         // A parsed formula that is a single constant (a number, possibly negated, text or TRUE/FALSE) as the rules'
         // constant form; null for anything to calculate.
@@ -173,18 +303,56 @@ public static partial class LegacySpreadsheets
     [GeneratedRegex(@"(?:'(?:[^']|'')*'|[^\s.:']*)\.\$?([A-Za-z]{1,3})\$?(\d{1,7})(?::(?:'(?:[^']|'')*'|[^\s.:']*)\.\$?([A-Za-z]{1,3})\$?(\d{1,7}))?")]
     private static partial Regex RangeAddress();
 
+    // A condition's formula in LibreOffice's notation ("[.F2]>2", "AND([.$A1]>1;[.B1:.B5]...)") as formula text for
+    // ConditionFormula: references in brackets lose them and their sheet-less dot, ";" between arguments becomes ",".
+    // Null for references to other sheets. Quoted text is left as it is.
+    private static string? OpenFormula(string formula)
+    {
+        var result = new StringBuilder();
+        bool quoted = false;
+        for (int i = 0; i < formula.Length; i++)
+        {
+            char c = formula[i];
+            if (c == '"') { quoted = !quoted; result.Append(c); continue; }
+            if (quoted) { result.Append(c); continue; }
+            if (c == '[')
+            {
+                int close = formula.IndexOf(']', i);
+                if (close < 0) return null;
+                string inside = formula[(i + 1)..close];
+                var parts = inside.Split(':');
+                if (parts.Length > 2 || parts.Any(p => !p.StartsWith('.') || p.Length < 3)) return null;      // another sheet, or not a reference
+                result.Append(string.Join(":", parts.Select(p => p[1..])));
+                i = close;
+                continue;
+            }
+            result.Append(c == ';' ? ',' : c);
+        }
+        return quoted ? null : result.ToString();
+    }
+
     // calcext:value of a condition: a comparison ("&gt;35", "between(1,2)") or a named test ("contains-text(\"x\")").
     private static ConditionalFormats.Rule? Condition(XElement e, Func<string, WorkbookStyles.Dxf?> style)
     {
         string value = (Ext(e, "value") ?? "").Trim();
         var rule = new ConditionalFormats.Rule { Format = style(Ext(e, "apply-style-name") ?? "") };
+        // Formulas are relative to the condition's base cell ("Rules.F2").
+        if (OpenDocumentRanges(Ext(e, "base-cell-address") ?? "") is [var origin, ..]) rule.Origin = [origin[0], origin[1]];
         foreach (var (prefix, operation) in new[] { ("<=", "lessThanOrEqual"), (">=", "greaterThanOrEqual"), ("!=", "notEqual"), ("<", "lessThan"), (">", "greaterThan"), ("=", "equal") })
             if (value.StartsWith(prefix, StringComparison.Ordinal))
             {
+                if (OpenFormula(value[prefix.Length..].Trim()) is not { } operand) return null;
                 rule.Type = "cellIs"; rule.Operator = operation;
-                rule.Formulas.Add(value[prefix.Length..].Trim());
+                rule.Formulas.Add(operand);
                 return rule;
             }
+        if (value.StartsWith("formula-is(", StringComparison.Ordinal) && value.EndsWith(')'))
+        {
+            if (OpenFormula(value["formula-is(".Length..^1]) is not { } formula) return null;
+            rule.Type = "expression";
+            rule.Formulas.Add(formula);
+            return rule;
+        }
         int open = value.IndexOf('(');
         string name = open < 0 ? value : value[..open];
         var args = open < 0 || !value.EndsWith(')') ? [] : Arguments(value[(open + 1)..^1]);
@@ -192,7 +360,8 @@ public static partial class LegacySpreadsheets
         switch (name)
         {
             case "between" or "not-between" when args.Count == 2:
-                rule.Type = "cellIs"; rule.Operator = name == "between" ? "between" : "notBetween"; rule.Formulas.AddRange(args); return rule;
+                if (OpenFormula(args[0]) is not { } low || OpenFormula(args[1]) is not { } high) return null;
+                rule.Type = "cellIs"; rule.Operator = name == "between" ? "between" : "notBetween"; rule.Formulas.Add(low); rule.Formulas.Add(high); return rule;
             case "duplicate": rule.Type = "duplicateValues"; return rule;
             case "unique": rule.Type = "uniqueValues"; return rule;
             case "top-elements" or "bottom-elements" or "top-percent" or "bottom-percent" when Rank() > 0:
