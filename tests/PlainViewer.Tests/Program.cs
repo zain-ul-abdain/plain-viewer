@@ -525,6 +525,18 @@ try
     }
     // Password-protected Office files (Agile encryption, made by officecrypto-tool with the test password "viewer-test").
     T WithPassword<T>(string? password, Func<T> open) { OfficeEncryption.Password = password; try { return open(); } finally { OfficeEncryption.Password = null; } }
+    Test("Protected workbook changed after it was protected is refused (data integrity HMAC)", () =>
+    {
+        byte[] bytes = File.ReadAllBytes(Path.Combine(corpus, "xlsx", "password.xlsx"));
+        var compound = new CompoundFile(bytes, "file");
+        var entry = compound.Find("EncryptedPackage")!;
+        byte[] package = compound.Read(entry, "file");
+        package[^20] ^= 0x01;                                    // one bit, near the end of the encrypted package
+        compound.Write(entry, package, "file");
+        string tampered = Path.Combine(root, "tampered-password.xlsx"); File.WriteAllBytes(tampered, bytes);
+        var refused = Throws<DocumentException>(() => WithPassword("viewer-test", () => Spreadsheets.Load(tampered)));
+        Check(refused is not PasswordException && refused.Message.Contains("changed after it was protected"));
+    });
     Test("Protected workbook: asks, refuses a wrong password, opens with the right one", () =>
     {
         string path = Path.Combine(corpus, "xlsx", "password.xlsx");

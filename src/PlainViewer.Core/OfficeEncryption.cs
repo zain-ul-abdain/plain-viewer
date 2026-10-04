@@ -119,9 +119,32 @@ public static class OfficeEncryption
             !CryptographicOperations.FixedTimeEquals(actual.AsSpan(0, passwordKey.HashSize), expected.AsSpan(0, passwordKey.HashSize)))
             throw new PasswordException(Incorrect(kind), true);
         byte[] secret = DecryptValue(KeyValueBlock, "encryptedKeyValue").AsSpan(0, passwordKey.KeyBits / 8).ToArray();
+        var dataHash = HashOf(keyData.Hash)!;
+
+        // 2.3.4.14: data integrity, an HMAC of the whole EncryptedPackage stream; its key and value are encrypted with the
+        // secret key. A file changed after it was protected is refused rather than shown. (Files without it are allowed.)
+        if (xml.SelectSingleNode("/e:encryption/e:dataIntegrity", ns) is XmlElement integrity)
+        {
+            byte[] Decrypt(string attribute, byte[] block)
+            {
+                byte[] value;
+                try { value = Convert.FromBase64String(integrity.GetAttribute(attribute)); } catch (FormatException) { throw Damaged(kind); }
+                if (value.Length == 0 || value.Length % 16 != 0) throw Damaged(kind);
+                byte[] iv = Fit(dataHash(Concat(keyData.Salt, block)), keyData.BlockSize, 0x36);
+                return Cbc(Fit(secret, keyData.KeyBits / 8, 0), iv, value).AsSpan(0, Math.Min(value.Length, keyData.HashSize)).ToArray();
+            }
+            byte[] hmacKey = Decrypt("encryptedHmacKey", [0x5f, 0xb2, 0xad, 0x01, 0x0c, 0xb9, 0xe1, 0xf6]);
+            byte[] hmacValue = Decrypt("encryptedHmacValue", [0xa0, 0x67, 0x7f, 0x02, 0xb2, 0x2c, 0x84, 0x33]);
+            byte[] computed = keyData.Hash switch
+            {
+                "SHA1" => HMACSHA1.HashData(hmacKey, package), "SHA256" => HMACSHA256.HashData(hmacKey, package),
+                "SHA384" => HMACSHA384.HashData(hmacKey, package), _ => HMACSHA512.HashData(hmacKey, package)
+            };
+            if (computed.Length != hmacValue.Length || !CryptographicOperations.FixedTimeEquals(computed, hmacValue))
+                throw new DocumentException($"This {kind} was changed after it was protected with its password, so it cannot be shown safely. Ask the sender for a fresh copy.");
+        }
 
         // 2.3.4.15: the package in 4,096-byte segments, each with its own initialisation vector.
-        var dataHash = HashOf(keyData.Hash)!;
         var plain = new byte[package.Length - 8];
         byte[] segmentIndex = new byte[4];
         using var aes = Aes.Create(); aes.Key = secret.Length == keyData.KeyBits / 8 ? secret : Fit(secret, keyData.KeyBits / 8, 0);
