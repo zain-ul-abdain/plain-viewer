@@ -358,3 +358,8 @@ Suggested title: Preserve Markdown list starts and table alignment and scroll wi
 - Zain chose passwords before releasing 0.8.0. `Core/OfficeEncryption.cs` decrypts Agile and Standard encrypted packages ([MS-OFFCRYPTO]); `Spreadsheets.Load` and `OfficePackages.Prepare` decrypt into memory when the file is an encrypted compound file and `OfficeEncryption.Password` is set, and throw `PasswordException` (Incorrect or not) otherwise. `DocumentException` is no longer sealed.
 - Protocol: `WorkerClient` writes `PASSWORD <base64>` after `START` on the worker's standard input; the worker sets `OfficeEncryption.Password`; `WorkerResponse.Password` is "required" or "incorrect" and the client rethrows it as `PasswordException`. `MainWindow.WithPassword` asks (`AskPassword`, the PDF dialog generalised) and retries; in the smoke test `MainWindow.TestMode` suppresses the dialog and `password=<pw>|<file>` arguments give the password.
 - Still refused: .doc/.xls/.ppt protection (RC4/CryptoAPI), OpenDocument passwords, certificate-protected files. HMAC integrity is not verified.
+
+## Agent 2, 4 October 2026 (later): 0.8.0 published
+
+- With Zain's approval ("publish"): https://github.com/zain-ul-abdain/plain-viewer/releases/tag/v0.8.0 (pre-release, tag at e102171, GitHub Actions run 37205711530, unsigned). Windows Sandbox clean-PC test passed, now with web pages, a book, code files, templates and two password files (TEST-RESULTS.md). README, BETA.md and STORE-LISTING.md list the new formats.
+- **Open:** passwords for .doc/.xls/.ppt (RC4/CryptoAPI) and OpenDocument files if Zain wants them; ARM64; for Zain: Partner Center, Narrator and scaling checks.

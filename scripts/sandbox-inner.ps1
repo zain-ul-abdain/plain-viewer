@@ -61,7 +61,8 @@ try {
   $webViews = [bool]$version
   Expect ($upgrade.ExitCode -eq 0 -and $webViews) "install again over it (upgrade) with the bundled WebView2 Runtime (exit $($upgrade.ExitCode), $($upgrade.Seconds) s, runtime $version)"
   Expect (Test-Path -LiteralPath $app) 'app still installed after the upgrade'
-  $native = 'simple.txt', 'complex.txt', 'simple.csv', 'complex.csv', 'simple.md', 'complex.markdown', 'data\complex.json', 'data\attack-xxe.xml', 'data\simple.yaml'
+  $native = 'simple.txt', 'complex.txt', 'simple.csv', 'complex.csv', 'simple.md', 'complex.markdown', 'data\complex.json', 'data\attack-xxe.xml', 'data\simple.yaml',
+    'data\simple.tsv', 'code\simple.cs', 'code\attack-script.js'
   $web = 'pdf\simple.pdf', 'pdf\complex.pdf', 'pdf\attack-javascript.pdf', 'pdf\attack-links.pdf', 'xlsx\simple.xlsx', 'xlsx\complex.xlsx',
     'docx\simple.docx', 'docx\complex-20-pages.docx', 'docx\attack-remote-image.docx', 'docx\attack-remote-template.docx', 'docx\attack-includepicture.docx',
     'pptx\simple.pptx', 'pptx\complex.pptx', 'pptx\attack-remote-image.pptx',
@@ -69,6 +70,7 @@ try {
     'images\complex.avif', 'images\complex.svg', 'images\attack-svg-active.svg', 'images\simple.gif', 'images\simple.ico',
     'odt\complex.odt', 'doc\attack-remote-image.doc', 'xls\complex.xls', 'ods\complex.ods', 'tiff\scan-3-pages.tiff', 'rtf\attack.rtf'
   $web += 'xlsx\drawings.xlsx', 'xls\drawings.xls', 'ods\drawings.ods', 'heic\jpeg-named.heic', 'xlsx\conditional.xlsx', 'xls\conditional.xls', 'ods\conditional.ods'
+  $web += 'web\simple.html', 'web\attack-active.html', 'web\simple.mht', 'web\complex.epub', 'doc\template.dot', 'xls\template.xlt', 'ods\complex.fods'
   # HEIC photos need Windows' HEIF and HEVC codecs from the Microsoft Store; without them the photo is refused with a
   # message naming them (a clean Windows Sandbox usually has neither).
   $heicCodecs = [bool](Get-AppxPackage -Name Microsoft.HEIFImageExtension -ErrorAction SilentlyContinue) -and [bool](Get-AppxPackage -Name Microsoft.HEVCVideoExtension* -ErrorAction SilentlyContinue)
@@ -77,6 +79,8 @@ try {
   $refuse = @($(if ($webViews -and -not $heicCodecs) { @('heic\simple.heic') } else { @() })) + @('pdf\zero-byte.pdf', 'pdf\not-a-pdf.pdf', 'xlsx\attack-xxe.xlsx', 'xlsx\attack-zip-bomb.xlsx', 'xlsx\password.xlsx',
     'docx\attack-xxe.docx', 'docx\attack-zip-bomb.docx', 'docx\password.docx', 'docx\damaged-truncated.docx',
     'pptx\attack-zip-bomb.pptx', 'pptx\password.pptx', 'images\attack-pixel-bomb.png', 'images\tiff-named.png', 'images\not-a-picture.jpg') | ForEach-Object { '!' + (Join-Path $corpus $_) }
+  # Protected Office files open with their test password (no dialog in the smoke test).
+  if ($webViews) { $open += 'xlsx\password.xlsx', 'docx\password.docx' | ForEach-Object { 'password=viewer-test|' + (Join-Path $corpus $_) } }
   $code = Run $app (@('--smoke-test') + $open + $refuse) (Join-Path $results 'smoke.txt')
   Get-Content (Join-Path $results 'smoke.txt') | ForEach-Object { Log "  $_" }
   Expect ($code -eq 0) "smoke test in the installed app: $($open.Count) opened, $($refuse.Count) refused (exit $code)"
