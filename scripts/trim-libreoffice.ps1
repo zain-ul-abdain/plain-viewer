@@ -1,9 +1,10 @@
 # Prepares the unpacked LibreOffice for shipping inside Plain Viewer:
 # - copies Microsoft's C++ runtime DLLs beside soffice.exe (an MSI install would put them in System32; a clean
 #   Windows PC may not have them), and
-# - removes what a read-only viewer never uses: interface translations, spelling and thesaurus data, Java
-#   extensions (no Java is bundled), offline help, icon themes other than the Windows default, and folders
-#   that only an MSI install uses.
+# - removes what a read-only viewer never uses: interface translations (including the translated configuration
+#   in share\registry\res), spelling and thesaurus data, Java extensions and class files (no Java is bundled),
+#   offline help, icon themes other than the Windows default (and its dark and SVG variants), the gallery, document
+#   templates, wizards, PDF import into Draw, and folders that only an MSI install uses.
 # Kept on purpose: hyphenation patterns (they change line breaks), fonts, import/export filters, Python (bundled
 # dictionary extensions register Python components) and every licence and readme file.
 # Run by fetch-libreoffice.ps1. Safe to run again. -Backup moves removed files there instead of deleting them.
@@ -54,8 +55,12 @@ Get-ChildItem -LiteralPath (Join-Path $Path 'share\extensions') -Directory -Filt
     Where-Object { ($_.Extension -in '.dic', '.aff' -and $_.Name -notlike 'hyph*') -or $_.Name -like 'th_*' -or $_.Name -like 'thes_*' } |
     ForEach-Object { $remove.Add($_.FullName) }
 }
-Get-ChildItem -LiteralPath (Join-Path $Path 'share\config') -File -Filter 'images_*.zip' | Where-Object Name -notlike 'images_colibre*' | ForEach-Object { $remove.Add($_.FullName) }
-foreach ($item in 'share\extensions\nlpsolver', 'share\extensions\wiki-publisher', 'help', 'Fonts', 'System', 'System64', 'SystemArm64') {
+Get-ChildItem -LiteralPath (Join-Path $Path 'share\config') -File -Filter 'images_*.zip' | Where-Object Name -ne 'images_colibre.zip' | ForEach-Object { $remove.Add($_.FullName) }
+# Translated configuration for every interface language (about 90 MB); only English is used.
+Get-ChildItem -LiteralPath (Join-Path $Path 'share\registry\res') -File -Filter 'registry_*.xcd' -ErrorAction SilentlyContinue |
+  Where-Object Name -ne 'registry_en-US.xcd' | ForEach-Object { $remove.Add($_.FullName) }
+foreach ($item in 'share\extensions\nlpsolver', 'share\extensions\wiki-publisher', 'help', 'Fonts', 'System', 'System64', 'SystemArm64',
+    'share\gallery', 'share\template', 'share\wizards', 'program\wizards', 'share\xpdfimport', 'program\xpdfimport.exe', 'program\classes') {
   $full = Join-Path $Path $item
   if (Test-Path -LiteralPath $full) { $remove.Add($full) }
 }

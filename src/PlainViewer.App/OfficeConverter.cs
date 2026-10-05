@@ -29,7 +29,10 @@ internal static class OfficeConverter
         {
             var tools = new DirectoryInfo(Path.Combine(dir.FullName, ".tools"));
             if (!tools.Exists) continue;
-            var found = tools.GetDirectories("libreoffice-*").OrderByDescending(d => d.Name, StringComparer.Ordinal)
+            // libreoffice-<version> is the x64 copy, libreoffice-<version>-arm64 the ARM64 one (package.ps1 -Arch arm64).
+            bool arm64 = System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture == System.Runtime.InteropServices.Architecture.Arm64;
+            var found = tools.GetDirectories("libreoffice-*").Where(d => d.Name.EndsWith("-arm64", StringComparison.Ordinal) == arm64)
+                .OrderByDescending(d => d.Name, StringComparer.Ordinal)
                 .Select(d => Path.Combine(d.FullName, "program", "soffice.exe")).FirstOrDefault(File.Exists);
             if (found is not null) return found;
         }

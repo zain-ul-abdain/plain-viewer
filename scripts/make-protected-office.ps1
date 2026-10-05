@@ -6,7 +6,7 @@
 param([switch]$Force)
 . "$PSScriptRoot\env.ps1"
 $corpus = Join-Path $repoRoot 'tests\corpus'
-$program = Get-ChildItem (Join-Path $repoRoot '.tools') -Directory -Filter 'libreoffice-*' | Sort-Object Name -Descending |
+$program = Get-ChildItem (Join-Path $repoRoot '.tools') -Directory -Filter 'libreoffice-*' | Where-Object Name -notlike '*-arm64' | Sort-Object Name -Descending |
   ForEach-Object { Join-Path $_.FullName 'program' } | Where-Object { Test-Path (Join-Path $_ 'soffice.exe') } | Select-Object -First 1
 if (-not $program) { throw 'LibreOffice is missing: run scripts\fetch-libreoffice.ps1.' }
 

@@ -14,6 +14,13 @@
   #define SetupArchitectures "x64compatible"
   #define WebView2Name "MicrosoftEdgeWebView2RuntimeInstallerX64.exe"
 #endif
+; NoWebView2 (package.ps1 -WithoutWebView2): a smaller installer without Microsoft's WebView2 installer (about 200 MB
+; less), for PCs that already have the runtime, as Windows 11 normally does. It says so at the end when it is missing.
+#ifdef NoWebView2
+  #define NameSuffix "-without-webview2"
+#else
+  #define NameSuffix ""
+#endif
 
 [Setup]
 ; Never change AppId: Windows uses it to recognise upgrades and the uninstaller.
@@ -35,7 +42,7 @@ ArchitecturesInstallIn64BitMode={#SetupArchitectures}
 ; Windows 11. Windows 10 is postponed (DECISIONS.md D13): the app does not start on Windows 10 without recent updates.
 MinVersion=10.0.22000
 OutputDir={#OutputDir}
-OutputBaseFilename=PlainViewer-Setup-{#AppVersion}-{#Arch}
+OutputBaseFilename=PlainViewer-Setup-{#AppVersion}-{#Arch}{#NameSuffix}
 Compression=lzma2/max
 SolidCompression=yes
 LZMAUseSeparateProcess=yes
@@ -50,7 +57,11 @@ UninstallDisplayIcon={app}\PlainViewer.exe
 SetupIconFile=..\src\PlainViewer.App\Assets\app.ico
 SetupLogging=yes
 ; Users accept these terms, which include Microsoft's terms for the bundled WebView2 Runtime (DECISIONS.md D9).
+#ifdef NoWebView2
+LicenseFile=terms-without-webview2.txt
+#else
 LicenseFile=terms.txt
+#endif
 ; Release builds are signed by SignPath after this script runs (.github/workflows/release.yml, docs/RELEASING.md):
 ; the app's own programs before they are packed, then this setup program. The uninstaller Inno Setup writes at install
 ; time is not signed.
@@ -58,7 +69,9 @@ LicenseFile=terms.txt
 [Tasks]
 Name: openwith; Description: "Add Plain Viewer to ""Open with"" for PDF, Word, Excel, PowerPoint, OpenDocument, RTF, picture, text, CSV, Markdown and data files (your default apps do not change)"
 Name: firewall; Description: "Block the parts that read documents from the network with Windows Firewall (asks for administrator permission once)"
+#ifndef NoWebView2
 Name: webview2; Description: "Install the Microsoft Edge WebView2 Runtime, which PDF, Word, Excel and PowerPoint files need (included; licensed by Microsoft)"; Check: not WebView2Installed
+#endif
 Name: desktopicon; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [InstallDelete]
@@ -69,7 +82,9 @@ Type: filesandordirs; Name: "{app}\Assets"
 [Files]
 ; Microsoft's signed offline WebView2 installer (package.ps1 checks the signature). Unpacked only when the runtime
 ; is missing; it is already compressed, and in its own block it unpacks without the rest of the files.
+#ifndef NoWebView2
 Source: "{#WebView2Installer}"; DestName: "{#WebView2Name}"; Flags: dontcopy nocompression solidbreak
+#endif
 Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#LibreOfficeDir}\*"; DestDir: "{app}\libreoffice"; Excludes: "__pycache__,*.pyc"; Flags: ignoreversion recursesubdirs createallsubdirs
 
@@ -315,6 +330,7 @@ begin
     and (ResultCode = 0);
 end;
 
+#ifndef NoWebView2
 // Runs Microsoft's offline installer: per-machine when setup is elevated, otherwise for the current user only.
 // It has no network access to do without. The runtime then keeps itself up to date and is not removed on uninstall.
 procedure InstallWebView2;
@@ -336,11 +352,18 @@ begin
     SuppressibleMsgBox('The Microsoft Edge WebView2 Runtime could not be installed (' + Detail + '). Plain Viewer will open text, CSV and Markdown files, ' +
       'but not PDF, Word, Excel or PowerPoint files. Run this installer again to retry.', mbError, MB_OK, IDOK);
 end;
+#endif
 
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
+#ifdef NoWebView2
+  if (CurStep = ssPostInstall) and not WebView2Installed then
+    SuppressibleMsgBox('This PC does not have the Microsoft Edge WebView2 Runtime, which this smaller installer does not include. Plain Viewer will open text, CSV and Markdown files, ' +
+      'but not PDF, Word, Excel or PowerPoint files. To add the runtime, run the full Plain Viewer installer (the one without "without-webview2" in its name).', mbInformation, MB_OK, IDOK);
+#else
   if (CurStep = ssPostInstall) and WizardIsTaskSelected('webview2') then
     InstallWebView2;
+#endif
   if (CurStep = ssPostInstall) and WizardIsTaskSelected('firewall') then
   begin
     RunElevated(FirewallCommand(True));

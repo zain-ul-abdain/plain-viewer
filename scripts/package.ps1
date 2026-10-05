@@ -10,7 +10,9 @@
 # copies the app's own programs to artifacts\sign\binaries for signing; after the signed copies are put back into the
 # publish folder, Installer runs step 3. The default, All, does everything in one go (unsigned).
 param([switch]$SkipTests, [string]$LibreOfficeVersion = '26.2.6', [ValidateSet('All', 'Publish', 'Installer')][string]$Stage = 'All',
-  [ValidateSet('x64', 'arm64')][string]$Arch = 'x64')
+  [ValidateSet('x64', 'arm64')][string]$Arch = 'x64',
+  # A smaller installer without Microsoft's WebView2 installer, for PCs that already have the runtime.
+  [switch]$WithoutWebView2)
 . "$PSScriptRoot\env.ps1"
 $version = ([xml](Get-Content -Raw (Join-Path $repoRoot 'Directory.Build.props'))).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
 if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Version in Directory.Build.props must look like 1.2.3 (found '$version')." }
@@ -24,10 +26,12 @@ if (Test-Path -LiteralPath (Join-Path $libreOffice 'System64')) { throw 'LibreOf
 if (-not (Test-Path -LiteralPath $iscc)) { throw "Inno Setup 7 is missing: expected $iscc" }
 # Bundled for PCs without the runtime (DECISIONS.md D9). Must come straight from Microsoft, signed by Microsoft.
 $webView2 = Join-Path $repoRoot ('.tools\webview2\MicrosoftEdgeWebView2RuntimeInstaller' + $(if ($Arch -eq 'arm64') { 'ARM64' } else { 'X64' }) + '.exe')
-if (-not (Test-Path -LiteralPath $webView2)) { throw 'The WebView2 offline installer is missing: see docs/RELEASING.md, one-time setup step 6.' }
-$signature = Get-AuthenticodeSignature -LiteralPath $webView2
-if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notlike 'CN=Microsoft Corporation,*') {
-  throw "The WebView2 installer is not validly signed by Microsoft Corporation ($($signature.Status)); download it again from Microsoft."
+if (-not $WithoutWebView2) {
+  if (-not (Test-Path -LiteralPath $webView2)) { throw 'The WebView2 offline installer is missing: see docs/RELEASING.md, one-time setup step 6.' }
+  $signature = Get-AuthenticodeSignature -LiteralPath $webView2
+  if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notlike 'CN=Microsoft Corporation,*') {
+    throw "The WebView2 installer is not validly signed by Microsoft Corporation ($($signature.Status)); download it again from Microsoft."
+  }
 }
 
 if (-not $SkipTests -and $Stage -ne 'Installer') {
@@ -75,9 +79,11 @@ if ($Stage -eq 'Publish') {
 if (-not (Test-Path -LiteralPath (Join-Path $publish 'PlainViewer.exe'))) { throw 'Nothing is published yet: run this script with -Stage Publish first.' }
 
 New-Item -ItemType Directory -Force -Path $output | Out-Null
-& $iscc /Qp "/DAppVersion=$version" "/DPublishDir=$publish" "/DLibreOfficeDir=$libreOffice" "/DWebView2Installer=$webView2" "/DOutputDir=$output" "/DArch=$Arch" (Join-Path $repoRoot 'installer\PlainViewer.iss')
+$defines = @("/DAppVersion=$version", "/DPublishDir=$publish", "/DLibreOfficeDir=$libreOffice", "/DOutputDir=$output", "/DArch=$Arch")
+$defines += if ($WithoutWebView2) { '/DNoWebView2=1' } else { "/DWebView2Installer=$webView2" }
+& $iscc /Qp @defines (Join-Path $repoRoot 'installer\PlainViewer.iss')
 if ($LASTEXITCODE -ne 0) { throw 'Inno Setup could not build the installer.' }
-$setup = Join-Path $output "PlainViewer-Setup-$version-$Arch.exe"
+$setup = Join-Path $output ("PlainViewer-Setup-$version-$Arch" + $(if ($WithoutWebView2) { '-without-webview2' } else { '' }) + '.exe')
 $hash = (Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant()
 Set-Content -LiteralPath "$setup.sha256" -Value "$hash  $(Split-Path $setup -Leaf)" -Encoding ascii
 Write-Output "Installer: $setup ($([math]::Round((Get-Item -LiteralPath $setup).Length / 1MB)) MB)"
