@@ -660,6 +660,27 @@ try
         Check(duplicates.IsTrue(0, 0, 0, 0, Cell) && !duplicates.IsTrue(1, 0, 0, 0, Cell) && duplicates.IsTrue(2, 0, 0, 0, Cell));
         Check(ConditionFormula.Parse("SUM(A1:J10000)>0")!.CellsPerCell == 100_000 && ConditionFormula.Parse("SUM($A$1:$J$10000)>0")!.CellsPerCell == 0);
     });
+    Test("Conditional formatting formulas: every supported function, against Excel's results", () =>
+    {
+        // Row 1: 10, "  Hello  World ", TRUE; row 2: -3.7, "", FALSE; row 3: empty, "12", an error.
+        object?[,] sheet = { { 10.0, "  Hello  World ", true }, { -3.7, "", false }, { null, "12", ConditionFormula.Error.Value } };
+        object? Cell(int r, int c) => r < 3 && c < 3 ? sheet[r, c] : null;
+        bool True(string formula) => ConditionFormula.Parse(formula) is { } f ? f.IsTrue(0, 0, 0, 0, Cell) : throw new Exception($"Not parsed: {formula}");
+        foreach (var formula in new[]
+        {
+            "TRUE()", "NOT(FALSE())", "OR(A2>0,A1>0)", "NOT(OR(FALSE,A2>0))", "XOR(TRUE,FALSE)", "NOT(XOR(TRUE,TRUE))",
+            "IF(A1>5,TRUE,FALSE)", "IF(A2>5,FALSE,TRUE)", "IF(A2>5,1)=FALSE", "ISERROR(IF(C3,1,2))",
+            "ISTEXT(B1)", "ISNONTEXT(A1)", "ISLOGICAL(C1)", "ISERROR(C3)", "ISNA(1/0)", "ISEVEN(A1)", "ISODD(-3.7)", "NOT(ISEVEN(-3.7))",
+            "COLUMN()=1", "COLUMN(C1)=3", "COLUMN(B1:C1)=2", "ROW(A3)=3",
+            "ABS(A2)=3.7", "INT(A2)=-4", "INT(9.99)=9",
+            "LEFT(\"Hello\",2)=\"He\"", "LEFT(\"Hello\")=\"H\"", "RIGHT(\"Hello\",3)=\"llo\"", "MID(\"Hello\",2,3)=\"ell\"", "MID(\"Hi\",5,1)=\"\"", "ISERROR(LEFT(\"a\",-1))",
+            "UPPER(\"ab\")=\"AB\"", "EXACT(LOWER(\"AB\"),\"ab\")", "TRIM(B1)=\"Hello World\"", "NOT(EXACT(\"a\",\"A\"))",
+            "VALUE(B3)=12", "ISERROR(VALUE(\"x\"))", "VALUE(\"1e3\")=1000",
+            "MIN(A1:A3)=-3.7", "MAX(A1:A3)=10", "MIN(B1:B3)=0", "COUNT(A1:A3)=2", "COUNTA(A1:B3)=5", "COUNTBLANK(A1:B3)=2",
+            "TRUE>FALSE", "\"a\"<TRUE", "1<\"a\"", "A3=0", "A3=\"\"", "NOT(B2=0)", "C2=FALSE", "\"5\"+1=6", "ISERROR(\"x\"+1)", "ISERROR(1/0)"
+        })
+            if (!True(formula)) throw new Exception($"Expected TRUE: {formula}");
+    });
     Test("Syntax colours: kinds on known text, and spans in order inside the text for every code and data fixture", () =>
     {
         string Kind(string text, string extension, string piece)

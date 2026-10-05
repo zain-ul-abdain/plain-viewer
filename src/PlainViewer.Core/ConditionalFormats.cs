@@ -28,6 +28,7 @@ internal sealed class ConditionalFormats(WorkbookStyles? workbook = null)
         public string IconSet = "3TrafficLights1";
         public string? Extension;                          // id of the rule's Excel 2010 copy (data bar lengths)
         public int[]? Origin;                              // the cell formulas are relative to (default: the first range's top left)
+        public int? Exclusive;                             // .ods: rules of one group, of which only the first true one applies to a cell
         public readonly List<int[]> Ranges = [];
     }
 
@@ -36,6 +37,7 @@ internal sealed class ConditionalFormats(WorkbookStyles? workbook = null)
         public bool? Bold, Italic, Underline, Strike;
         public string? Color, Fill, Left, Right, Top, Bottom, Bar, Icon;
         public bool Stopped, HideText;
+        public HashSet<int>? Matched;                      // exclusive groups that already applied to the cell
     }
 
     private readonly List<Rule> rules = [];
@@ -161,11 +163,12 @@ internal sealed class ConditionalFormats(WorkbookStyles? workbook = null)
             if (effect is null) { NotShown++; continue; }
             foreach (long key in targets)
             {
-                if (overlays.TryGetValue(key, out var overlay) && overlay.Stopped) continue;
+                if (overlays.TryGetValue(key, out var overlay) && (overlay.Stopped || rule.Exclusive is int taken && overlay.Matched?.Contains(taken) == true)) continue;
                 overlay ??= new Overlay();
                 if (!effect(key, overlay)) continue;
                 overlays[key] = overlay;
                 if (rule.Stop) overlay.Stopped = true;
+                if (rule.Exclusive is int group) (overlay.Matched ??= []).Add(group);
             }
         }
 

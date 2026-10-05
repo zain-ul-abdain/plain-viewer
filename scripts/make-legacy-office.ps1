@@ -30,6 +30,8 @@ $jobs = @(
   @('xlsx\simple.xlsx', 'xls\simple.xls'), @('xlsx\complex.xlsx', 'xls\complex.xls'), @('xlsx\styles.xlsx', 'xls\styles.xls'), @('ods\large-12000-rows.ods', 'xls\large-12000-rows.xls'),
   @('xlsx\drawings.xlsx', 'xls\drawings.xls'), @('xlsx\drawings.xlsx', 'ods\drawings.ods'),
   @('xlsx\conditional.xlsx', 'xls\conditional.xls'), @('xlsx\conditional.xlsx', 'ods\conditional.ods'), @('xlsx\styles.xlsx', 'ods\styles-libreoffice.ods'), @('xlsx\shapes.xlsx', 'ods\shapes.ods'), @('xlsx\shapes.xlsx', 'xls\shapes.xls'),
+  @('xlsx\conditional-more.xlsx', 'xls\conditional-more.xls'), @('xlsx\conditional-more.xlsx', 'ods\conditional-more.ods'),
+  @('xlsx\conditional-formulas.xlsx', 'xls\conditional-formulas.xls'), @('xlsx\conditional-formulas.xlsx', 'ods\conditional-formulas.ods'),
   @('pptx\simple.pptx', 'ppt\simple.ppt'), @('pptx\complex.pptx', 'ppt\complex.ppt'), @('pptx\attack-remote-image.pptx', 'ppt\attack-remote-image.ppt'),
   # Templates and the flat OpenDocument spreadsheet (0.8.0); the third item is LibreOffice's export filter.
   @('docx\simple.docx', 'doc\template.dot', 'MS Word 97 Vorlage'), @('docx\simple.docx', 'odt\template.ott', 'writer8_template'),

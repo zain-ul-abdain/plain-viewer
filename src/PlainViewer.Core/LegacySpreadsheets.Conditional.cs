@@ -261,8 +261,9 @@ public static partial class LegacySpreadsheets
     private const string CalcExtNs = "urn:org:documentfoundation:names:experimental:calc:xmlns:calcext:1.0";
     private static string? Ext(XElement e, string name) => e.Attribute(XName.Get(name, CalcExtNs))?.Value;
 
-    // A sheet's conditional formats: conditions (with a cell style), colour scales, data bars and icon sets. Conditions
-    // written as formulas and date conditions are counted as not shown.
+    // A sheet's conditional formats: conditions (with a cell style), colour scales, data bars and icon sets. Date
+    // conditions are counted as not shown. As in LibreOffice, a cell takes the style of the first true condition only,
+    // across all of the sheet's formats (in their order); scales, data bars and icon sets apply as well.
     private static void ReadConditions(XElement formats, ConditionalFormats target, Func<string, WorkbookStyles.Dxf?> style)
     {
         int priority = 0;
@@ -282,6 +283,7 @@ public static partial class LegacySpreadsheets
                 };
                 if (rule is null || ranges.Count == 0) { target.NotShown++; continue; }
                 rule.Priority = priority;
+                if (e.Name.LocalName == "condition") rule.Exclusive = 0;
                 rule.Ranges.AddRange(ranges);
                 target.Add(rule);
             }

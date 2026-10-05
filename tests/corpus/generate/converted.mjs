@@ -200,6 +200,28 @@ export async function generateConverted() {
         { ref: "C2", bar: "10 #638ec6" }, { ref: "C7", bar: "90 #638ec6" }, { ref: "D2", icon: "arrow-down red" }, { ref: "D4", icon: "arrow-right yellow" }, { ref: "D7", icon: "arrow-up green" },
         { ref: "E2", italic: true }, { ref: "E3", italic: null }, { ref: "F4", fill: null }, { ref: "F5", fill: "#ffeb9c" }, { ref: "F7", fill: "#ffeb9c" }] },
       "The conditional formatting workbook as .ods (calcext:conditional-formats with styles named by display name): every rule is shown, the formula rule formula-is([.F2]>2) relative to its base cell; LibreOffice keeps its own data bar lengths (10 to 90)."],
+    // The formula and "more" rule workbooks (after 0.9.0), saved by LibreOffice: formula tokens in .xls, OpenFormula and
+    // LibreOffice's rule kinds in .ods.
+    ...["xls", "ods"].map(format => [`${format}/conditional-formulas.${format}`, format, "complex", { result: "open", kind: "sheet", sheets: ["Formulas"], cells: [{ sheet: "Formulas", ref: "A4", text: "25" }],
+      styles: [{ ref: "C3", fill: null }, { ref: "C4", fill: "#ffc7ce" }, { ref: "C5", fill: null }, { ref: "C7", fill: "#ffc7ce" },
+        { ref: "D4", fill: null }, { ref: "D5", fill: "#c6efce" }, { ref: "E4", fill: null }, { ref: "E7", fill: "#ffeb9c" },
+        { ref: "F2", italic: null }, { ref: "F3", italic: true }, { ref: "F5", italic: true }, { ref: "G3", bold: null }, { ref: "G4", bold: true },
+        { ref: "H2", fill: "#d9d9d9" }, { ref: "H4", fill: null }, { ref: "I2", top: null }, { ref: "I3", top: "1 solid #0000ff", bottom: "1 solid #0000ff" }] },
+      `The formula rules workbook as .${format}: AND with text, unary minus, brackets and a percent, a fixed area in SUM, LEN, a decimal number; not-equal and between value rules (blue borders).`]),
+    // .xls holds only value and formula rules (LibreOffice writes the rest as Excel 2007 records, counted as not shown);
+    // the two rules on column L share one CONDFMT, where the first true one wins.
+    ["xls/conditional-more.xls", "xls", "complex", { result: "open", kind: "sheet", sheets: ["More"], cells: [{ sheet: "More", ref: "A5", text: "35" }],
+      styles: [{ ref: "A3", fill: null }, { ref: "A4", fill: "#ffc7ce" }, { ref: "A5", fill: "#ffc7ce" }, { ref: "A6", fill: null },
+        { ref: "E3", fill: "#d9d9d9" }, { ref: "E2", fill: null }, { ref: "L2", fill: null, bold: true }, { ref: "L3", fill: "#ff0000", bold: null }],
+      workbookNotice: "8 conditional formatting rules are not shown" },
+      "The \"more rule kinds\" workbook as .xls: between, blanks and the two L rules are kept; LibreOffice saves the other eight as Excel 2007 records, counted in the notice."],
+    ...["ods"].map(format => [`${format}/conditional-more.${format}`, format, "complex", { result: "open", kind: "sheet", sheets: ["More"], cells: [{ sheet: "More", ref: "A5", text: "35" }],
+      styles: [{ ref: "A3", fill: null }, { ref: "A4", fill: "#ffc7ce" }, { ref: "A5", fill: "#ffc7ce" }, { ref: "A6", fill: null },
+        { ref: "B2", fill: "#c6efce" }, { ref: "B3", fill: "#c6efce" }, { ref: "B4", fill: null }, { ref: "C4", fill: null }, { ref: "C5", fill: "#c6efce" }, { ref: "C7", fill: "#c6efce" },
+        { ref: "D2", fill: "#ffeb9c" }, { ref: "D4", fill: "#ffeb9c" }, { ref: "D5", fill: null }, { ref: "E3", fill: "#d9d9d9" }, { ref: "E2", fill: null }, { ref: "E4", italic: true },
+        { ref: "I2", fill: "#ffc7ce" }, { ref: "I5", fill: null }, { ref: "J5", fill: "#c6efce" }, { ref: "J2", fill: null },
+        { ref: "L2", fill: null, bold: true }, { ref: "L3", fill: "#ff0000", bold: null }] },
+      `The "more rule kinds" workbook as .${format}: between, bottom 2, top 50%, below average, blanks, errors, duplicates, unique and stop-if-true.`]),
     ["ppt/simple.ppt", "ppt", "simple", { result: "open", kind: "slides", text: ["Hello"] }],
     ["ppt/complex.ppt", "ppt", "complex", { result: "open", kind: "slides", text: ["Hello"] }],
     ["ppt/attack-remote-image.ppt", "ppt", "attack", { result: "open", kind: "slides", removedAtLeast: 1, text: ["Hello"] }, "Linked picture to the listener."],

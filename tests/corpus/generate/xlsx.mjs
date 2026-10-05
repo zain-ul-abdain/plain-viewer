@@ -208,6 +208,37 @@ export async function generateXlsx({ large }) {
           { ref: "L2", fill: null, bold: true }, { ref: "L3", fill: "#ff0000", bold: null }] },
       rules: SAFE_RULES, notes: "Rule kinds not in conditional.xlsx. Between 20 and 40; bottom 2; top 50% of six values (three); below the average of 30; a blank and an error cell; a 3-colour scale with a 50th-percentile midpoint; 3 traffic lights and 5 rating bars with the value hidden; duplicates and unique values; begins with b, ends with y; L: > 10 fills red and stops, so only cells up to 10 are bold." });
   }
+  // Rules written as formulas with many kinds of parts (text, numbers with decimals, unary minus, percent, brackets,
+  // functions with fixed and variable arguments, a fixed area), plus value rules "not equal" and "between" with a
+  // border. LibreOffice saves the same workbook as .xls (formula tokens) and .ods (OpenFormula) for the other readers.
+  {
+    const wb = workbook();
+    const ws = wb.addWorksheet("Formulas");
+    ws.getRow(1).values = ["Hello: numbers", "Words", "AND", "Minus", "Average", "Length", "Decimal", "Not 25", "Between"];
+    const numbers = [5, 15, 25, 35, 45, 55], words = ["yes", "no", "yes", "no", "yes", "yes"];
+    for (let i = 0; i < 6; i++) ws.getRow(i + 2).values = [numbers[i], words[i], ...Array(7).fill(numbers[i])];
+    const fill = argb => ({ fill: { type: "pattern", pattern: "solid", bgColor: { argb } } });
+    let priority = 0;
+    const add = (ref, rule) => ws.addConditionalFormatting({ ref, rules: [{ priority: ++priority, ...rule }] });
+    add("C2:C7", { type: "expression", formulae: ['AND($A2>10,$B2="yes")'], style: fill("FFFFC7CE") });
+    add("D2:D7", { type: "expression", formulae: ["-$A2+(30)<0%"], style: fill("FFC6EFCE") });
+    add("E2:E7", { type: "expression", formulae: ["SUM($A$2:$A$7)/6<$A2"], style: fill("FFFFEB9C") });
+    add("F2:F7", { type: "expression", formulae: ["LEN($B2)=2"], style: { font: { italic: true } } });
+    add("G2:G7", { type: "expression", formulae: ["$A2=25.5-0.5"], style: { font: { bold: true } } });
+    add("H2:H7", { type: "cellIs", operator: "notEqual", formulae: [25], style: fill("FFD9D9D9") });
+    add("I2:I7", { type: "cellIs", operator: "between", formulae: [10, 20], style: { border: { top: { style: "thin", color: { argb: "FF0000FF" } }, bottom: { style: "thin", color: { argb: "FF0000FF" } } } } });
+    write("xlsx/conditional-formulas.xlsx", await stable(await wb.xlsx.writeBuffer()));
+    record({ id: "xlsx-conditional-formulas", file: "xlsx/conditional-formulas.xlsx", format: "xlsx", category: "complex", producer, licence,
+      expect: { result: "open", sheets: ["Formulas"], cells: [{ sheet: "Formulas", ref: "A4", text: "25" }],
+        styles: [
+          { ref: "C3", fill: null }, { ref: "C4", fill: "#ffc7ce" }, { ref: "C5", fill: null }, { ref: "C7", fill: "#ffc7ce" },
+          { ref: "D4", fill: null }, { ref: "D5", fill: "#c6efce" }, { ref: "E4", fill: null }, { ref: "E7", fill: "#ffeb9c" },
+          { ref: "F2", italic: null }, { ref: "F3", italic: true }, { ref: "F5", italic: true },
+          { ref: "G3", bold: null }, { ref: "G4", bold: true },
+          { ref: "H2", fill: "#d9d9d9" }, { ref: "H4", fill: null },
+          { ref: "I2", top: null }, { ref: "I3", top: "1 solid #0000ff", bottom: "1 solid #0000ff" }] },
+      rules: SAFE_RULES, notes: "Formula rules: AND with text, unary minus with brackets and a percent, a fixed area in SUM, LEN, a decimal number; value rules not-equal and between (a blue top and bottom border)." });
+  }
   // Simple
   {
     const wb = workbook();
