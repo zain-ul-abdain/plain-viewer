@@ -79,7 +79,7 @@ public static class LegacyEncryption
         // Flags (4), header size (4), header (AlgID at 8, AlgIDHash at 12, KeySize at 16), then the verifier.
         if (rest.Length < 8) throw Damaged(kind);
         int headerSize = BinaryPrimitives.ReadInt32LittleEndian(rest[4..]);
-        if (headerSize < 32 || 8 + headerSize + 4 + 16 + 16 + 4 + 20 > rest.Length) throw Damaged(kind);
+        if (headerSize < 32 || 8L + headerSize + 4 + 16 + 16 + 4 + 20 > rest.Length) throw Damaged(kind);
         var header = rest.Slice(8, headerSize);
         int algorithm = BinaryPrimitives.ReadInt32LittleEndian(header[8..]), hash = BinaryPrimitives.ReadInt32LittleEndian(header[12..]);
         int keyBits = BinaryPrimitives.ReadInt32LittleEndian(header[16..]);
@@ -144,41 +144,49 @@ public static class LegacyEncryption
     // the key for its persist ID as the block number; the UserEditAtoms, persist directories and the
     // CryptSession10Container holding the encryption header are not. Decrypts `records` (the PowerPoint Document stream)
     // in place and marks `currentUser` as not encrypted. Pictures (in the separate Pictures stream) are left as they are.
+    // Files saved with PowerPoint's fast save keep older copies of changed objects, listed by older edits' persist
+    // directories: every listed copy is decrypted (each with its own persist ID), or walking the records would find
+    // encrypted leftovers.
     public static void DecryptPresentation(byte[] records, byte[] currentUser, string kind)
     {
         if (currentUser.Length < 20) throw Damaged(kind);
         int edit = BinaryPrimitives.ReadInt32LittleEndian(currentUser.AsSpan(16));
-        int Int(int at) => at >= 0 && at + 4 <= records.Length ? BinaryPrimitives.ReadInt32LittleEndian(records.AsSpan(at)) : throw Damaged(kind);
-        if (edit < 0 || edit + 40 > records.Length) throw Damaged(kind);
+        // Positions come from the file: compared by subtraction so that a huge value cannot wrap around.
+        int Int(int at) => at >= 0 && at <= records.Length - 4 ? BinaryPrimitives.ReadInt32LittleEndian(records.AsSpan(at)) : throw Damaged(kind);
+        if (edit < 0 || edit > records.Length - 40) throw Damaged(kind);
         int length = Int(edit + 4);
         if (length < 0x20) throw Damaged(kind);
         int session = Int(edit + 8 + 28);           // encryptSessionPersistIdRef
-        var objects = new Dictionary<int, int>();   // persist ID -> stream offset, newest edit first
+        var newest = new Dictionary<int, int>();    // persist ID -> its newest copy's stream offset
+        var copies = new Dictionary<int, int>();    // stream offset -> persist ID, every copy listed
         var seen = new HashSet<int>();
         for (int at = edit; at > 0 && seen.Add(at);)
         {
+            if (at > records.Length - 40) throw Damaged(kind);
             int directory = Int(at + 8 + 12), next = Int(at + 8 + 8);
-            int size = Int(directory + 4), end = directory + 8 + size;
-            if (end > records.Length || size < 0) throw Damaged(kind);
+            int size = Int(directory + 4);
+            if (size < 0 || (long)directory + 8 + size > records.Length) throw Damaged(kind);
+            int end = directory + 8 + size;
             for (int p = directory + 8; p + 4 <= end;)
             {
                 uint info = (uint)Int(p); p += 4;
                 int first = (int)(info & 0xFFFFF), count = (int)(info >> 20);
-                for (int i = 0; i < count && p + 4 <= end; i++, p += 4) objects.TryAdd(first + i, Int(p));
+                for (int i = 0; i < count && p + 4 <= end; i++, p += 4) { int offset = Int(p); newest.TryAdd(first + i, offset); copies.TryAdd(offset, first + i); }
             }
             at = next;
         }
-        if (!objects.TryGetValue(session, out int sessionAt) || sessionAt + 8 > records.Length) throw Damaged(kind);
+        if (!newest.TryGetValue(session, out int sessionAt) || sessionAt < 0 || sessionAt > records.Length - 8) throw Damaged(kind);
         int sessionLength = Int(sessionAt + 4);
-        if (BinaryPrimitives.ReadUInt16LittleEndian(records.AsSpan(sessionAt + 2)) != 0x2F14 || sessionLength < 0 || sessionAt + 8 + sessionLength > records.Length) throw Damaged(kind);
+        if (BinaryPrimitives.ReadUInt16LittleEndian(records.AsSpan(sessionAt + 2)) != 0x2F14 || sessionLength < 0 || sessionLength > records.Length - sessionAt - 8) throw Damaged(kind);
         var key = Open(records.AsSpan(sessionAt + 8, sessionLength), kind);
-        foreach (var (id, offset) in objects)
+        foreach (var (offset, id) in copies)
         {
-            if (id == session || offset < 0 || offset + 8 > records.Length) continue;
+            if (id == session || offset < 0 || offset > records.Length - 8) continue;
             var rc4 = new Rc4(key.BlockKey(id));
             for (int i = 0; i < 8; i++) records[offset + i] ^= rc4.Next();
             long size = BinaryPrimitives.ReadUInt32LittleEndian(records.AsSpan(offset + 4));
-            if (offset + 8 + size > records.Length) throw new PasswordException(OfficeEncryption.Incorrect(kind), true);
+            // The password was checked already, so a size past the end means a damaged file, not a wrong password.
+            if (offset + 8 + size > records.Length) throw Damaged(kind);
             for (int i = 0; i < size; i++) records[offset + 8 + i] ^= rc4.Next();
         }
         BinaryPrimitives.WriteUInt32LittleEndian(currentUser.AsSpan(12), PlainToken);

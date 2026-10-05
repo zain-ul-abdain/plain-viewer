@@ -267,8 +267,8 @@ internal static class SheetDrawings
         foreach (var (series, part) in parts.SelectMany(p => p.Elements().Where(e => e.Name.LocalName == "ser").Select(s => (s, p))).Take(MaxSeries))
         {
             // Data labels: the series' own settings, else the chart's; a label's number format is its own or the values'.
-            var own = Child(series, "dLbls"); var shared = Child(kind, "dLbls");
-            bool Shows(string part) => !Deleted(own) && (Child(own, part) ?? (own is null && !Deleted(shared) ? Child(shared, part) : null)) is { } flag && Attribute(flag, "val") is "1" or "true";
+            var own = Child(series, "dLbls"); var shared = Child(part, "dLbls");   // the settings of the series' own part of a combined chart
+            bool Shows(string flagName) => !Deleted(own) && (Child(own, flagName) ?? (own is null && !Deleted(shared) ? Child(shared, flagName) : null)) is { } flag && Attribute(flag, "val") is "1" or "true";
             var labelFormat = Child(own ?? shared, "numFmt");
             labelParts.Add((Shows("showVal"), Shows("showPercent"), Shows("showCatName"),
                 labelFormat is not null && Attribute(labelFormat, "sourceLinked") is not ("1" or "true") ? Attribute(labelFormat, "formatCode")

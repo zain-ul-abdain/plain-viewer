@@ -508,6 +508,8 @@ try
                 if (expect.TryGetProperty("pictures", out var pictures) && content.Pictures.Values.Distinct().Count() != pictures.GetInt32()) throw new Exception($"Pictures: {content.Pictures.Count}");
                 if (expect.TryGetProperty("styles", out var styles) && content.Styles.Values.Distinct().Count() != styles.GetInt32()) throw new Exception($"Style sheets: {content.Styles.Count}");
                 if (expect.TryGetProperty("fonts", out var fonts) && content.Fonts.Values.Distinct().Count() != fonts.GetInt32()) throw new Exception($"Fonts: {content.Fonts.Count}");
+                // Every test book has a title, written straight after its identifier with no space between the tags.
+                if (path.EndsWith(".epub", StringComparison.OrdinalIgnoreCase) && content.Title.Length == 0) throw new Exception("The book's title was not read.");
                 foreach (var font in content.Fonts.Values.Distinct())
                     Check(WebDocuments.FontContentType(font) is { } fontType && "font/" + WebDocuments.FontType(File.ReadAllBytes(Path.Combine(work, font))) == fontType);
                 string all = string.Join("\n", content.Parts.Select(p => p.Html));
@@ -536,6 +538,19 @@ try
         string tampered = Path.Combine(root, "tampered-password.xlsx"); File.WriteAllBytes(tampered, bytes);
         var refused = Throws<DocumentException>(() => WithPassword("viewer-test", () => Spreadsheets.Load(tampered)));
         Check(refused is not PasswordException && refused.Message.Contains("changed after it was protected"));
+    });
+    Test("Protected workbook with impossible header values is damaged, not an unexpected error", () =>
+    {
+        // hashSize="-9" (same length as "64", so the stream keeps its size): refused as damaged before any password.
+        byte[] bytes = File.ReadAllBytes(Path.Combine(corpus, "xlsx", "password.xlsx"));
+        var compound = new CompoundFile(bytes, "file");
+        var entry = compound.Find("EncryptionInfo")!;
+        string xml = Encoding.Latin1.GetString(compound.Read(entry, "file"));
+        Check(xml.Contains("hashSize=\"64\""));
+        compound.Write(entry, Encoding.Latin1.GetBytes(xml.Replace("hashSize=\"64\"", "hashSize=\"-9\"")), "file");
+        string hostile = Path.Combine(root, "hostile-header.xlsx"); File.WriteAllBytes(hostile, bytes);
+        var refused = Throws<DocumentException>(() => WithPassword("viewer-test", () => Spreadsheets.Load(hostile)));
+        Check(refused is not PasswordException && refused.Message.Contains("damaged"));
     });
     Test("Protected workbook: asks, refuses a wrong password, opens with the right one", () =>
     {
@@ -634,6 +649,16 @@ try
         Check(!At("1/0>0", 0) && At("IFERROR(1/0,7)=7", 0) && At("-$A1+20=10", 0) && At("50%=0.5", 0) && At("\"a\"&\"b\"=\"AB\"", 0));
         foreach (var unsupported in new[] { "TODAY()>A1", "Sheet2!A1>1", "MyName>1", "INDIRECT(\"A1\")", "A1>", "(A1" })
             Check(ConditionFormula.Parse(unsupported) is null);
+        // Hostile shapes are refused, not a stack overflow: deep nesting, long sign runs, long operator chains, overlong text.
+        foreach (var hostile in new[] { new string('(', 5000) + "1" + new string(')', 5000) + ">0", new string('-', 10000) + "1>0",
+            "A1" + string.Concat(Enumerable.Repeat("+1", 3000)) + ">0", "\"" + new string('x', 9000) + "\"=A1" })
+            Check(ConditionFormula.Parse(hostile) is null);
+        Check(At("ROUND(1234.5,-2)=1200", 0) && At("ROUND(1,-400)=0", 0) && At("ROUNDDOWN(-7.9,0)=-7", 0));
+        Check(At("COUNTIF($B$1:$B$5,\"*o*\")=2", 0) && At("COUNTIF($B$1:$B$5,\"y?s\")=2", 0) && At("COUNTIF($B$1:$B$5,\"<>*o*\")=3", 0) && At("COUNTIF($B$1:$B$5,\"~*\")=0", 0));
+        // One instance per rule: its fixed range is read once and gives the same answers for every row.
+        var duplicates = ConditionFormula.Parse("COUNTIF($A$1:$A$5,$A1)>1")!;
+        Check(duplicates.IsTrue(0, 0, 0, 0, Cell) && !duplicates.IsTrue(1, 0, 0, 0, Cell) && duplicates.IsTrue(2, 0, 0, 0, Cell));
+        Check(ConditionFormula.Parse("SUM(A1:J10000)>0")!.CellsPerCell == 100_000 && ConditionFormula.Parse("SUM($A$1:$J$10000)>0")!.CellsPerCell == 0);
     });
     Test("Syntax colours: kinds on known text, and spans in order inside the text for every code and data fixture", () =>
     {

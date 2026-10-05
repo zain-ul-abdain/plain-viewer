@@ -131,7 +131,7 @@ function header(sheet, table, offsets, frozen, spans, covered, hiddenRows) {
 function mergesWithin(sheet, first, last, position) {
   const spans = new Map(), covered = new Set();
   for (const [r1, c1, r2, c2] of sheet.merges) {
-    if (r1 < first || r1 > last) continue;
+    if (r1 < first || r1 > last || c1 < 0 || r2 < r1 || c2 < c1 || c2 - c1 > 16384) continue;   // never trust a range blindly
     const lastRow = Math.min(r2, last);
     spans.set(`${r1},${c1}`, [position(lastRow) - position(r1) + 1, c2 - c1 + 1]);
     for (let r = r1; r <= lastRow; r++) for (let c = c1; c <= c2; c++) if (r !== r1 || c !== c1) covered.add(`${r},${c}`);
@@ -423,12 +423,20 @@ const svg = (name, attributes = {}, text) => {
 const colourOf = (series, i) => COLOUR.test(series?.color ?? "") ? series.color : PALETTE[i % PALETTE.length];
 const finite = v => typeof v === "number" && Number.isFinite(v);
 
+// Lowest and highest of a long list (charts may hold 500,000 values, too many to spread into Math.min).
+function lowest(list, start = Infinity) { let low = start; for (const v of list) if (v < low) low = v; return low; }
+function highest(list, start = -Infinity) { let high = start; for (const v of list) if (v > high) high = v; return high; }
+
 function niceTicks(min, max) {
+  if (!Number.isFinite(min) || !Number.isFinite(max)) { min = 0; max = 1; }
   if (min === max) { min -= 1; max += 1; }
+  // A range smaller than the numbers' own precision (1e16 and 1e16 + 2) is widened, so each step moves the value.
+  const spread = Math.max(Math.abs(min), Math.abs(max)) * 1e-9;
+  if (max - min < spread) { min -= spread; max += spread; }
   const raw = (max - min) / 5, power = 10 ** Math.floor(Math.log10(raw)), step = [1, 2, 2.5, 5, 10].map(m => m * power).find(s => s >= raw);
   const ticks = [];
-  for (let v = Math.floor(min / step) * step; v <= max + step * 0.001; v += step) ticks.push(Math.round(v / step) * step);
-  if (ticks[ticks.length - 1] < max) ticks.push(ticks[ticks.length - 1] + step);
+  for (let v = Math.floor(min / step) * step; v <= max + step * 0.001 && ticks.length < 100; v += step) ticks.push(Math.round(v / step) * step);
+  if (ticks.length < 2 || ticks[ticks.length - 1] < max) ticks.push(ticks[ticks.length - 1] + step);
   return ticks;
 }
 const tickLabel = (v, percent) => (percent ? `${Math.round(v)}%` : Math.abs(v) >= 1e6 ? `${+(v / 1e6).toFixed(2)}M` : Math.abs(v) >= 1e4 ? `${+(v / 1e3).toFixed(1)}k` : `${+v.toFixed(4)}`);
@@ -687,7 +695,7 @@ function drawRadar(root, chart, series, area) {
   const categories = chart.categories ?? [], n = Math.max(categories.length, ...series.map(s => s.values.length));
   if (n < 3) return;
   const values = series.flatMap(s => s.values.filter(finite));
-  const ticks = niceTicks(Math.min(0, ...values), Math.max(0, ...values)), low = ticks[0], high = ticks[ticks.length - 1];
+  const ticks = niceTicks(lowest(values, 0), highest(values, 0)), low = ticks[0], high = ticks[ticks.length - 1];
   const cx = (area.left + area.right) / 2, cy = (area.top + area.bottom) / 2 + 6;
   const r = Math.max(10, Math.min(area.right - area.left, area.bottom - area.top) / 2 - 22);
   const at = (i, v) => { const a = -Math.PI / 2 + i / n * Math.PI * 2, d = (v - low) / (high - low) * r; return [cx + d * Math.cos(a), cy + d * Math.sin(a)]; };
@@ -718,7 +726,7 @@ function drawStock(root, chart, series, area) {
   if (!high || !low || !close) { drawAxes(root, { ...chart, type: "line" }, series, area); return; }
   const all = [open, high, low, close].filter(Boolean).flatMap(s => s.values.filter(finite));
   if (!all.length) return;
-  const ticks = niceTicks(Math.min(...all), Math.max(...all)), bottom = ticks[0], top = ticks[ticks.length - 1];
+  const ticks = niceTicks(lowest(all), highest(all)), bottom = ticks[0], top = ticks[ticks.length - 1];
   const labelWidth = Math.min(80, Math.max(...ticks.map(t => measureChart(tickLabel(t))))) + 8;
   const plot = { left: area.left + labelWidth, top: area.top, right: area.right, bottom: area.bottom - 18 };
   const y = v => plot.bottom - (v - bottom) / (top - bottom) * (plot.bottom - plot.top), band = (plot.right - plot.left) / Math.max(1, n);
@@ -741,7 +749,7 @@ function drawScatter(root, series, area, bubbles) {
   const xs = series.flatMap(s => (s.x?.length ? s.x : s.values.map((_v, i) => i + 1)).filter(finite));
   const ys = series.flatMap(s => s.values.filter(finite));
   if (!xs.length || !ys.length) return;
-  const xt = niceTicks(Math.min(...xs), Math.max(...xs)), yt = niceTicks(Math.min(0, ...ys), Math.max(0, ...ys));
+  const xt = niceTicks(lowest(xs), highest(xs)), yt = niceTicks(lowest(ys, 0), highest(ys, 0));
   const labelWidth = Math.min(80, Math.max(...yt.map(t => measureChart(tickLabel(t))))) + 8;
   const plot = { left: area.left + labelWidth, top: area.top, right: area.right - 8, bottom: area.bottom - 18 };
   const sx = v => plot.left + (v - xt[0]) / (xt[xt.length - 1] - xt[0]) * (plot.right - plot.left);
@@ -752,7 +760,7 @@ function drawScatter(root, series, area, bubbles) {
   root.append(grid, svg("line", { x1: plot.left, x2: plot.right, y1: plot.bottom, y2: plot.bottom, class: "chart-axis" }));
   // Bubbles: the area follows the size, the largest bubble an eighth of the plot across.
   const sizes = bubbles ? series.flatMap(s => (s.sizes ?? []).filter(v => finite(v) && v > 0)) : [];
-  const biggest = Math.max(1e-9, ...sizes), most = Math.min(plot.right - plot.left, plot.bottom - plot.top) / 8;
+  const biggest = highest(sizes, 1e-9), most = Math.min(plot.right - plot.left, plot.bottom - plot.top) / 8;
   series.forEach((s, k) => {
     const group = svg("g", { fill: colourOf(s, k), "fill-opacity": bubbles ? 0.75 : 1 });
     s.values.forEach((v, i) => {

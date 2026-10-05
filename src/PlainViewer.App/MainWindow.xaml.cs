@@ -130,6 +130,8 @@ public partial class MainWindow : Window
                     finally { WebPane.StateChanged -= OnState; }
                 }
                 await WaitFor(() => WebPane.Chapters >= 1, "The book reported no chapters");
+                // Each chapter starts a new column and a page has at most two (right-to-left books once collapsed to one page).
+                if (WebPane.Pages * 2 < WebPane.Chapters) throw new InvalidOperationException($"The book's {WebPane.Chapters} chapters fit on {WebPane.Pages} pages.");
                 WebPane.GoToPage(WebPane.Pages);
                 await WaitFor(() => WebPane.Page == WebPane.Pages, "Going to the last page failed");
                 if (WebPane.Pages > 1)

@@ -253,17 +253,27 @@ public static class WebDocuments
         var content = new Content { Kind = "book" };
         string? uniqueId = null;
         var identifiers = new Dictionary<string, string>();
+        // Reading an element's text moves the reader to the node after it, which is examined next (not skipped): a
+        // package written without spaces between its tags has its identifier straight after the title.
         using (var reader = XmlReader.Create(opf.Open(), XmlSettings))
-            while (reader.Read())
+        {
+            reader.Read();
+            while (!reader.EOF)
             {
-                if (reader.NodeType != XmlNodeType.Element) continue;
-                if (reader.LocalName == "package") uniqueId = reader.GetAttribute("unique-identifier");
-                else if (reader.LocalName == "identifier" && reader.NamespaceURI == DcNs) { string key = reader.GetAttribute("id") ?? ""; string value = reader.ReadElementContentAsString(); identifiers.TryAdd(key, value); }
-                else if (reader.LocalName == "item" && reader.GetAttribute("id") is { } id && reader.GetAttribute("href") is { } href)
-                    manifest[id] = (Resolve(root, Uri.UnescapeDataString(href)), reader.GetAttribute("media-type") ?? "");
-                else if (reader.LocalName == "itemref" && reader.GetAttribute("idref") is { } idref) spine.Add(idref);
-                else if (reader.LocalName == "title" && reader.NamespaceURI == DcNs && content.Title.Length == 0) content.Title = reader.ReadElementContentAsString().Trim();
+                if (reader.NodeType == XmlNodeType.Element)
+                {
+                    if (reader.LocalName == "identifier" && reader.NamespaceURI == DcNs)
+                    { string key = reader.GetAttribute("id") ?? ""; identifiers.TryAdd(key, reader.ReadElementContentAsString()); continue; }
+                    if (reader.LocalName == "title" && reader.NamespaceURI == DcNs && content.Title.Length == 0)
+                    { content.Title = reader.ReadElementContentAsString().Trim(); continue; }
+                    if (reader.LocalName == "package") uniqueId = reader.GetAttribute("unique-identifier");
+                    else if (reader.LocalName == "item" && reader.GetAttribute("id") is { } id && reader.GetAttribute("href") is { } href)
+                        manifest[id] = (Resolve(root, Uri.UnescapeDataString(href)), reader.GetAttribute("media-type") ?? "");
+                    else if (reader.LocalName == "itemref" && reader.GetAttribute("idref") is { } idref) spine.Add(idref);
+                }
+                reader.Read();
             }
+        }
         int pictures = 0, fonts = 0;
         string identifier = uniqueId is not null && identifiers.TryGetValue(uniqueId, out var found) ? found : identifiers.Values.FirstOrDefault() ?? "";
         foreach (var (href, type) in manifest.Values)

@@ -44,8 +44,9 @@ public static partial class LegacySpreadsheets
             if (CompoundFile.IsCompoundFile(head))
             {
                 var file = new CompoundFile(bytes, "Excel 97–2003 workbook");
+                // A password-protected .xlsx keeps its encrypted package in the same container as an .xls.
                 if (file.Has("EncryptionInfo") || file.Has("EncryptedPackage"))
-                    throw new DocumentException("This workbook is protected with a password. Password-protected workbooks cannot be opened in this version. Remove the password in Excel, or ask the sender for an unprotected copy.");
+                    throw new DocumentException($"This is a password-protected newer Excel file (.xlsx) saved with a {extension} name. Rename it to end in .xlsx to view it.");
                 if (!file.Has("Workbook") && !file.Has("Book")) throw new DocumentException(Named());
                 if (file.Find("Workbook") is null) throw new DocumentException("This is an Excel 5.0 or Excel 95 workbook, which is older than this viewer supports. Save it in a newer format to view it.");
                 return new Excel97(file, culture, storeFolder).Read();
@@ -301,7 +302,8 @@ public static partial class LegacySpreadsheets
             Sheet.RowCount = rows;
             if (store is not null) Sheet.FrozenRows = Math.Min(Sheet.FrozenRows, Sheet.Rows.Count);
             Sheet.HiddenRows = Sheet.HiddenRows.Where(r => r <= rows).ToList();
-            Sheet.Merges = Sheet.Merges.Where(m => m[0] < rows && m[1] < width)
+            // Ranges come from the file: negative or reversed ones are dropped.
+            Sheet.Merges = Sheet.Merges.Where(m => m[0] >= 0 && m[1] >= 0 && m[2] >= m[0] && m[3] >= m[1] && m[0] < rows && m[1] < width)
                 .Select(m => new[] { m[0], m[1], Math.Min(m[2], rows - 1), Math.Min(m[3], width - 1) }).ToList();
             if (rows == 0) Sheet.Notice = "This sheet is empty.";
             return Sheet;

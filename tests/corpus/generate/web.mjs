@@ -167,6 +167,11 @@ export async function generateWeb({ large }) {
     ...Array.from({ length: 12 }, (_, i) => [`part${i + 1}.xhtml`, `<h1>Hello complex book, part ${i + 1}</h1>${Array.from({ length: 30 }, (_, p) => `<p>Paragraph ${p + 1} of part ${i + 1}.</p>`).join("")}<p><a href="#">Top</a> <a href="https://example.com/book">Publisher</a></p>`]),
   ] });
   rec("complex.epub", "complex", { result: "open", kind: "web", parts: 15, pictures: 1, text: ["اردو باب", "中文章节", "part 12"] }, "SVG cover referring to a picture in the book, right-to-left and CJK chapters, 15 chapters in reading order.");
+  // A right-to-left book whose style sheet (not its markup) sets the direction, and a vertical-writing rule: its pages
+  // must still run left to right (once collapsed to a single page) and each chapter keep its direction.
+  await epub("rtl.epub", { title: "Hello right-to-left book", css: "html, body { direction: rtl; } .tategaki { writing-mode: vertical-rl; }",
+    chapters: Array.from({ length: 6 }, (_, i) => [`chapter${i + 1}.xhtml`, `<h1>Hello باب ${i + 1}</h1>${Array.from({ length: 25 }, (_, p) => `<p>هذا نص عربي في الفقرة ${p + 1}. یہ اردو متن ہے۔</p>`).join("")}`]) });
+  rec("rtl.epub", "complex", { result: "open", kind: "web", parts: 6, text: ["باب 6", "یہ اردو متن ہے"] }, "Direction set only by the book's style sheet (html and body right-to-left): pages still run left to right, one page per two chapters at least.");
   await epub("attack.epub", { title: "Hostile book", css: `@import url("${LISTENER}/epub-import.css"); body { background: url("${LISTENER}/epub-background.png"); }`, chapters: [
     ["hostile.xhtml", `<h1>Hello book</h1><script>fetch("${LISTENER}/epub-script")</script><img src="${LISTENER}/epub-image.png" alt="Remote"/><img src="../../../outside.png" alt="Outside the book"/><iframe src="${LISTENER}/epub-frame"></iframe><a href="javascript:fetch('${LISTENER}/epub-js')">Script link</a>`],
   ] });

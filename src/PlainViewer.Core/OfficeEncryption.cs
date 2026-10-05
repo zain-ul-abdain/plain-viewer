@@ -54,6 +54,8 @@ public static class OfficeEncryption
             };
         }
         catch (PasswordException) when (!PasswordGiven) { throw new PasswordException(Required(kind), false); }
+        // Values in a hostile header that slip past the checks below (sizes, lengths) mean a damaged file.
+        catch (Exception e) when (e is ArgumentException or OverflowException or IndexOutOfRangeException or CryptographicException) { throw Damaged(kind); }
         if (plain.Length < size) throw Damaged(kind);
         Array.Resize(ref plain, (int)size);
         if (!plain.AsSpan().StartsWith("PK\u0003\u0004"u8)) throw Damaged(kind);
@@ -78,7 +80,7 @@ public static class OfficeEncryption
                 return new(Convert.FromBase64String(e.GetAttribute("saltValue")), int.Parse(e.GetAttribute("blockSize")), int.Parse(e.GetAttribute("keyBits")),
                     int.Parse(e.GetAttribute("hashSize")), e.GetAttribute("hashAlgorithm"), e.GetAttribute("cipherAlgorithm"), e.GetAttribute("cipherChaining"));
             }
-            catch (FormatException) { throw Damaged(kind); }
+            catch (Exception error) when (error is FormatException or OverflowException) { throw Damaged(kind); }
         }
     }
 
@@ -100,6 +102,7 @@ public static class OfficeEncryption
         var keyData = Parameters.From(keyDataElement, kind);
         var passwordKey = Parameters.From(encryptedKey, kind);
         if (!int.TryParse(encryptedKey.GetAttribute("spinCount"), out int spinCount) || spinCount is < 0 or > 10_000_000) throw Damaged(kind);
+        if (keyData.HashSize is < 1 or > 64 || passwordKey.HashSize is < 1 or > 64) throw Damaged(kind);
         foreach (var p in new[] { keyData, passwordKey })
             if (p.Cipher != "AES" || p.Chaining != "ChainingModeCBC" || p.BlockSize != 16 || p.KeyBits is not (128 or 192 or 256) || HashOf(p.Hash) is null || p.Salt.Length is < 1 or > 64)
                 throw new DocumentException($"This {kind} uses a kind of password protection this viewer cannot open. Remove the password in Office, or ask the sender for an unprotected copy.");
@@ -129,7 +132,9 @@ public static class OfficeEncryption
         if (expected.Length < passwordKey.HashSize || actual.Length < passwordKey.HashSize ||
             !CryptographicOperations.FixedTimeEquals(actual.AsSpan(0, passwordKey.HashSize), expected.AsSpan(0, passwordKey.HashSize)))
             throw new PasswordException(Incorrect(kind), true);
-        byte[] secret = DecryptValue(KeyValueBlock, "encryptedKeyValue").AsSpan(0, passwordKey.KeyBits / 8).ToArray();
+        byte[] encryptedSecret = DecryptValue(KeyValueBlock, "encryptedKeyValue");
+        if (encryptedSecret.Length < passwordKey.KeyBits / 8) throw Damaged(kind);
+        byte[] secret = encryptedSecret.AsSpan(0, passwordKey.KeyBits / 8).ToArray();
         var dataHash = HashOf(keyData.Hash)!;
 
         // 2.3.4.14: data integrity, an HMAC of the whole EncryptedPackage stream; its key and value are encrypted with the
@@ -176,10 +181,11 @@ public static class OfficeEncryption
 
     private static byte[] Standard(byte[] info, byte[] package, string password, string kind)
     {
+        if (info.Length < 12) throw Damaged(kind);
         int flags = BinaryPrimitives.ReadInt32LittleEndian(info.AsSpan(4));
         if ((flags & 0x24) != 0x24) throw new DocumentException($"This {kind} uses a kind of password protection this viewer cannot open. Remove the password in Office, or ask the sender for an unprotected copy.");
         int headerSize = BinaryPrimitives.ReadInt32LittleEndian(info.AsSpan(8));
-        if (headerSize < 32 || 12 + headerSize + 4 + 16 + 16 + 4 + 32 > info.Length) throw Damaged(kind);
+        if (headerSize < 32 || 12L + headerSize + 4 + 16 + 16 + 4 + 32 > info.Length) throw Damaged(kind);
         int keyBits = BinaryPrimitives.ReadInt32LittleEndian(info.AsSpan(12 + 16));
         if (keyBits == 0) keyBits = 128;
         if (keyBits is not (128 or 192 or 256)) throw Damaged(kind);

@@ -62,9 +62,10 @@ public static class OfficePackages
         Stream package = stream;
         if (head.AsSpan().StartsWith(new byte[] { 0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1 }))
         {
-            if (head.AsSpan().IndexOf(Encoding.Unicode.GetBytes("EncryptionInfo")) < 0)
-                throw new DocumentException($"This looks like an older Office file ({(word ? ".doc" : ".ppt")}) saved with a {extension} name. Rename it to end in {(word ? ".doc" : ".ppt")} to view it.");
+            // The container's directory, which lists the encryption parts, can be anywhere in the file.
             var encrypted = new byte[length]; stream.ReadExactly(encrypted); stream.Position = 0;
+            if (!OfficeEncryption.IsEncrypted(encrypted))
+                throw new DocumentException($"This looks like an older Office file ({(word ? ".doc" : ".ppt")}) saved with a {extension} name. Rename it to end in {(word ? ".doc" : ".ppt")} to view it.");
             try { package = new MemoryStream(OfficeEncryption.Decrypt(encrypted, kind), false); }
             catch (InvalidDataException) { throw new DocumentException($"This {kind} is damaged or incomplete, so it cannot be shown. Try another copy of the file."); }
             head = new byte[8]; package.ReadExactly(head); package.Position = 0;

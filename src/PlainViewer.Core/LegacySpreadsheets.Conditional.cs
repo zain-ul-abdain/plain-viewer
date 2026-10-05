@@ -148,7 +148,7 @@ public static partial class LegacySpreadsheets
                         case 0x12: break;                                                   // unary plus
                         case 0x13: stack.Push("-" + stack.Pop()); break;
                         case 0x14: stack.Push(stack.Pop() + "%"); break;
-                        case 0x15: stack.Push("(" + stack.Pop() + ")"); break;
+                        case 0x15: stack.Push("(" + stack.Pop() + ")"); break;   // the length check below stops runs of these
                         case 0x16: stack.Push(""); break;                                   // missing argument
                         case 0x17:
                             {
@@ -206,6 +206,8 @@ public static partial class LegacySpreadsheets
                             }
                         default: return null;                                                // names, other sheets, arrays, errors…
                     }
+                    // Longer than Excel allows a formula to be (8,192 characters): not worked out (and no quadratic copying).
+                    if (stack.Count > 0 && stack.Peek().Length > 8192) return null;
                 }
             }
             catch (InvalidOperationException) { return null; }                              // a malformed token list

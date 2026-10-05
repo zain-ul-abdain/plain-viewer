@@ -68,7 +68,7 @@ public static class OpenDocumentEncryption
             byte[] key;
             if (part.Derivation.EndsWith("argon2id", StringComparison.Ordinal))
             {
-                if (part.Iterations is < 1 or > 16 || part.Memory is < 8 or > 1024 * 1024 || part.Lanes is < 1 or > 64 || part.KeySize != 32) throw Damaged(kind);
+                if (part.Iterations is < 1 or > 16 || part.Lanes is < 1 or > 64 || part.Memory < 8 * part.Lanes || part.Memory > 1024 * 1024 || part.KeySize != 32) throw Damaged(kind);
                 key = Argon2.Hash(startKey, part.Salt, part.Iterations, part.Memory, part.Lanes, 32);
             }
             else if (part.Derivation.EndsWith("PBKDF2", StringComparison.OrdinalIgnoreCase))

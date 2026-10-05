@@ -52,7 +52,8 @@ function cleanCss(css, base = "") {
       const font = lookup(content.fonts ?? {}, base, address);
       return font ? `url("${mediaUrl(font)}")` : "none";
     })
-    .replace(/expression\s*\(|-moz-binding|behavior\s*:/gi, "invalid(");
+    .replace(/(?:-moz-binding|behavior)\s*:[^;}]*/gi, "")
+    .replace(/expression\s*\(/gi, "invalid(");
 }
 
 function placeholder(doc, text) {
@@ -112,7 +113,8 @@ function cleanPart(part, index, styles) {
       else { if (tag === "image" && href) removed.pictures++; element.removeAttribute(name); }
     }
     if (tag === "a" || tag === "area") {
-      const href = (element.getAttribute("href") || "").trim();
+      const href = (element.getAttribute("href") || element.getAttribute("xlink:href") || "").trim();
+      element.removeAttribute("xlink:href");
       if (!href) continue;
       if (href.startsWith("#")) element.dataset.pvTarget = `${index}#${href.slice(1)}`;
       else if (/^(https?:|mailto:)/i.test(href)) element.dataset.pvLink = href;
@@ -153,7 +155,8 @@ svg { max-width: 100%; max-height: var(--pv-page-height, 90vh); break-inside: av
 pre { white-space: pre-wrap; }
 table { max-width: 100%; }
 .pv-part + .pv-part { break-before: column; }
-.pv-end { height: 0; margin: 0; padding: 0; }`;
+.pv-end { height: 0; margin: 0; padding: 0; }
+.pv-extent { position: absolute; top: 0; left: 0; width: 1px; height: 1px; pointer-events: none; }`;
 
 function addStyle(text) {
   const style = frameDoc.createElement("style");
@@ -177,6 +180,12 @@ async function show() {
   frameDoc.title = content.title || cleaned[0]?.title || "";
   if (paged()) {
     end = frameDoc.createElement("div"); end.className = "pv-end"; frameDoc.body.append(end);
+    // Pages always run left to right (layout() sets the page's own direction); a book whose style sheet makes the
+    // whole book right-to-left keeps that direction in each chapter instead.
+    if (frameWin.getComputedStyle(frameDoc.body).direction === "rtl")
+      for (const section of sections) if (!section.hasAttribute("dir")) section.setAttribute("dir", "rtl");
+    // Marks the end of the last page, so it can be scrolled to even when its last column is empty.
+    extent = frameDoc.createElement("div"); extent.className = "pv-extent"; frameDoc.body.append(extent);
     baseFont = parseFloat(frameWin.getComputedStyle(frameDoc.body).fontSize) || 16;
     for (const image of frameDoc.images) if (!image.complete) image.addEventListener("load", queueLayout, { once: true });
     frameDoc.fonts?.ready.then(queueLayout);
@@ -206,7 +215,7 @@ function notice() {
 // ---- Book pages ----
 
 const paged = () => content?.kind === "book";
-let pageIndex = 0, pageCount = 1, pageWidth = 1, columnsPerPage = 1, end = null, baseFont = 16, layoutQueued = false, wheel = 0, wheelAt = 0;
+let pageIndex = 0, pageCount = 1, pageWidth = 1, columnsPerPage = 1, end = null, extent = null, baseFont = 16, layoutQueued = false, wheel = 0, wheelAt = 0;
 
 function setImportant(element, styles) { for (const [name, value] of Object.entries(styles)) element.style.setProperty(name, value, "important"); }
 const clampPage = index => Math.max(0, Math.min(pageCount - 1, index));
@@ -229,7 +238,10 @@ function layout() {
   const fraction = pageIndex / Math.max(1, pageCount);
   const width = frameWin.innerWidth, height = frameWin.innerHeight;
   const columns = width >= 1000 ? 2 : 1;
-  setImportant(frameDoc.documentElement, { overflow: "hidden", height: "100%", margin: "0", padding: "0" });
+  // Columns that run right to left (a right-to-left or vertical book) would give negative page positions.
+  const flow = { direction: "ltr", "writing-mode": "horizontal-tb", position: "static" };
+  setImportant(frameDoc.documentElement, { overflow: "hidden", height: "100%", margin: "0", padding: "0", ...flow });
+  setImportant(frameDoc.body, flow);
   setImportant(frameDoc.body, { "font-size": `${baseFont * scale}px` });
   const em = parseFloat(frameWin.getComputedStyle(frameDoc.body).fontSize) || 16;
   // Lines of about 40 em at most; the space either side of a column is half the gap between columns, so every column
@@ -240,7 +252,9 @@ function layout() {
   frameDoc.documentElement.style.setProperty("--pv-page-height", `${height - 2 * padY}px`);
   pageWidth = Math.max(1, width); columnsPerPage = columns;
   frameWin.scrollTo(0, 0);
+  extent.style.left = "0px";
   pageCount = Math.max(1, pageAt(end.getBoundingClientRect()) + 1);
+  extent.style.left = `${pageCount * pageWidth - 1}px`;
   const rect = anchor ? anchor.getClientRects()[0] ?? firstRect(anchor.startContainer) : null;
   showPage(rect ? pageAt(rect) : Math.round(fraction * pageCount));
 }
@@ -344,12 +358,13 @@ function find(query, previous) {
   if (query !== lastQuery) {
     lastQuery = query; matches = []; position = -1;
     if (query) {
-      const needle = query.toLocaleLowerCase();
+      // Case-insensitive matching on the text itself, so match positions are positions in the text.
+      const pattern = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "giu");
       const walker = frameDoc.createTreeWalker(frameDoc.body, NodeFilter.SHOW_TEXT);
       for (let node = walker.nextNode(); node && matches.length < 10000; node = walker.nextNode()) {
-        const text = node.data.toLocaleLowerCase();
-        for (let at = text.indexOf(needle); at >= 0 && matches.length < 10000; at = text.indexOf(needle, at + needle.length)) {
-          const range = frameDoc.createRange(); range.setStart(node, at); range.setEnd(node, at + query.length); matches.push(range);
+        pattern.lastIndex = 0;
+        for (let found = pattern.exec(node.data); found && matches.length < 10000; found = pattern.exec(node.data)) {
+          const range = frameDoc.createRange(); range.setStart(node, found.index); range.setEnd(node, found.index + found[0].length); matches.push(range);
         }
       }
     }

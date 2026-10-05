@@ -7,7 +7,9 @@ namespace PlainViewer.Core;
 // the top-left cell of the rule's first range: references without $ move with each cell, as in Excel.
 // Supported: numbers, text, TRUE/FALSE, references and ranges on the same sheet, + - * / ^ & = <> < > <= >= and
 // unary minus and percent, and the functions listed in Call. Anything else (other sheets, names, other functions,
-// today's date) makes Parse return null, and the rule stays counted as not shown.
+// today's date) makes Parse return null, and the rule stays counted as not shown. So do formulas longer than Excel's
+// 8,192 characters, nested deeper than Excel's 64 levels or with more than 512 operations (their evaluation would
+// recurse that deep). One instance serves one rule on one sheet: ranges with only fixed ($) references are read once.
 internal sealed class ConditionFormula
 {
     public sealed class Error { public static readonly Error Value = new(); }
@@ -33,18 +35,26 @@ internal sealed class ConditionFormula
 
     public static ConditionFormula? Parse(string formula)
     {
+        if (formula.Length > 8192) return null;
         try
         {
             var parser = new Parser(formula.Trim().TrimStart('='));
             var node = parser.Expression();
-            return parser.AtEnd ? new ConditionFormula(node) : null;
+            return parser.AtEnd ? new ConditionFormula(node) { CellsPerCell = parser.MovingCells } : null;
         }
         catch (FormatException) { return null; }
     }
 
+    // Cells read for each cell the rule covers by ranges that move with the cell (fixed ranges are read only once):
+    // callers compare it with the number of cells covered and leave rules too costly to work out as not shown.
+    public long CellsPerCell { get; private init; }
+    private readonly Dictionary<Range, List<object?>> fixedRanges = [];
+
     private sealed class Parser(string text)
     {
-        private int at;
+        private int at, depth, operations;
+        public long MovingCells { get; private set; }
+        private T Count<T>(T node) { if (++operations > 512) throw Unsupported(); return node; }
         public bool AtEnd { get { Skip(); return at >= text.Length; } }
         private void Skip() { while (at < text.Length && char.IsWhiteSpace(text[at])) at++; }
         private bool Take(string token)
@@ -55,7 +65,13 @@ internal sealed class ConditionFormula
         }
         private static FormatException Unsupported() => new();
 
-        public Node Expression() => Comparison();
+        public Node Expression()
+        {
+            if (++depth > 64) throw Unsupported();
+            var node = Comparison();
+            depth--;
+            return node;
+        }
         private Node Comparison()
         {
             var left = Concatenation();
@@ -63,28 +79,29 @@ internal sealed class ConditionFormula
             {
                 string? op = Take("<=") ? "<=" : Take(">=") ? ">=" : Take("<>") ? "<>" : Take("=") ? "=" : Take("<") ? "<" : Take(">") ? ">" : null;
                 if (op is null) return left;
-                left = new Binary(op, left, Concatenation());
+                left = Count(new Binary(op, left, Concatenation()));
             }
         }
-        private Node Concatenation() { var left = Additive(); while (Take("&")) left = new Binary("&", left, Additive()); return left; }
+        private Node Concatenation() { var left = Additive(); while (Take("&")) left = Count(new Binary("&", left, Additive())); return left; }
         private Node Additive()
         {
             var left = Multiplicative();
-            while (true) { if (Take("+")) left = new Binary("+", left, Multiplicative()); else if (Take("-")) left = new Binary("-", left, Multiplicative()); else return left; }
+            while (true) { if (Take("+")) left = Count(new Binary("+", left, Multiplicative())); else if (Take("-")) left = Count(new Binary("-", left, Multiplicative())); else return left; }
         }
         private Node Multiplicative()
         {
             var left = Power();
-            while (true) { if (Take("*")) left = new Binary("*", left, Power()); else if (Take("/")) left = new Binary("/", left, Power()); else return left; }
+            while (true) { if (Take("*")) left = Count(new Binary("*", left, Power())); else if (Take("/")) left = Count(new Binary("/", left, Power())); else return left; }
         }
-        private Node Power() { var left = Prefix(); while (Take("^")) left = new Binary("^", left, Prefix()); return left; }
+        private Node Power() { var left = Prefix(); while (Take("^")) left = Count(new Binary("^", left, Prefix())); return left; }
         private Node Prefix()
         {
-            if (Take("-")) return new Unary('-', Prefix());
-            if (Take("+")) return Prefix();
+            // Signs in a row, counted without recursion: an odd number of minus signs negates.
+            bool negative = false;
+            while (true) { if (Take("-")) negative = !negative; else if (!Take("+")) break; if (++operations > 512) throw Unsupported(); }
             var node = Primary();
-            while (Take("%")) node = new Binary("/", node, new Literal(100.0));
-            return node;
+            while (Take("%")) node = Count(new Binary("/", node, new Literal(100.0)));
+            return negative ? Count(new Unary('-', node)) : node;
         }
         private Node Primary()
         {
@@ -127,7 +144,7 @@ internal sealed class ConditionFormula
                         do arguments.Add(Expression()); while (Take(","));
                         if (!Take(")")) throw Unsupported();
                     }
-                    return new Function(word.ToUpperInvariant(), arguments);
+                    return Count(new Function(word.ToUpperInvariant(), arguments));
                 }
                 if (word.Equals("TRUE", StringComparison.OrdinalIgnoreCase)) return new Literal(true);
                 if (word.Equals("FALSE", StringComparison.OrdinalIgnoreCase)) return new Literal(false);
@@ -137,7 +154,10 @@ internal sealed class ConditionFormula
                     Skip();
                     int s2 = at;
                     while (at < text.Length && (char.IsLetterOrDigit(text[at]) || text[at] == '$')) at++;
-                    return new Range(reference, Cell(text[s2..at]) ?? throw Unsupported());
+                    var to = Cell(text[s2..at]) ?? throw Unsupported();
+                    if (!(reference.RowFixed && reference.ColumnFixed && to.RowFixed && to.ColumnFixed))
+                        MovingCells += (long)(Math.Abs(to.Row - reference.Row) + 1) * (Math.Abs(to.Column - reference.Column) + 1);
+                    return new Range(reference, to);
                 }
                 return reference;
             }
@@ -166,14 +186,14 @@ internal sealed class ConditionFormula
 
     public object? Evaluate(int row, int column, int originRow, int originColumn, Func<int, int, object?> cell)
     {
-        var context = new Context(row - originRow, column - originColumn, cell) { OriginRow = originRow, OriginColumn = originColumn };
+        var context = new Context(row - originRow, column - originColumn, cell, fixedRanges) { OriginRow = originRow, OriginColumn = originColumn };
         try { return Scalar(context.Value(root)); }
         catch (Exception ex) when (ex is ArgumentException or OverflowException or InvalidCastException or IndexOutOfRangeException) { return Error.Value; }
     }
 
     private static object? Scalar(object? value) => value is List<object?> list ? list.FirstOrDefault() : value;
 
-    private sealed class Context(int rowShift, int columnShift, Func<int, int, object?> cell)
+    private sealed class Context(int rowShift, int columnShift, Func<int, int, object?> cell, Dictionary<Range, List<object?>> fixedRanges)
     {
         private (int Row, int Column) At(Reference r) => (r.RowFixed ? r.Row : r.Row + rowShift, r.ColumnFixed ? r.Column : r.Column + columnShift);
 
@@ -185,11 +205,13 @@ internal sealed class ConditionFormula
                 case Reference r: { var (row, column) = At(r); return row < 0 || column < 0 ? Error.Value : cell(row, column); }
                 case Range g:
                     {
+                        if (fixedRanges.TryGetValue(g, out var known)) return known;
                         var (r1, c1) = At(g.From); var (r2, c2) = At(g.To);
                         if (r1 < 0 || c1 < 0 || r2 < 0 || c2 < 0 || (long)(Math.Abs(r2 - r1) + 1) * (Math.Abs(c2 - c1) + 1) > 100_000) return Error.Value;
                         var values = new List<object?>();
                         for (int r = Math.Min(r1, r2); r <= Math.Max(r1, r2); r++)
                             for (int c = Math.Min(c1, c2); c <= Math.Max(c1, c2); c++) values.Add(cell(r, c));
+                        if (g.From.RowFixed && g.From.ColumnFixed && g.To.RowFixed && g.To.ColumnFixed) fixedRanges[g] = values;
                         return values;
                     }
                 case Unary u: { var v = Number(Scalar(Value(u.Operand))); return v is double d ? -d : Error.Value; }
@@ -246,9 +268,14 @@ internal sealed class ConditionFormula
                 case "INT": return Num(0) is double whole ? Math.Floor(whole) : Error.Value;
                 case "ROUND" or "ROUNDUP" or "ROUNDDOWN":
                     {
-                        if (Num(0) is not double v) return Error.Value;
-                        double scale = Math.Pow(10, Num(1) ?? 0), s = v * scale;
-                        return (f.Name == "ROUND" ? Math.Round(s, MidpointRounding.AwayFromZero) : f.Name == "ROUNDUP" ? Math.Sign(s) * Math.Ceiling(Math.Abs(s)) : Math.Truncate(s)) / scale;
+                        if (Num(0) is not double v || Num(1) is double.NaN) return Error.Value;
+                        double digits = Math.Truncate(Num(1) ?? 0);
+                        if (digits > 15) return v;                                         // already exact to that many places
+                        // Far fewer digits than the number has: ROUND and ROUNDDOWN give 0, ROUNDUP a number too big to hold.
+                        if (digits < -300) return v == 0 || f.Name != "ROUNDUP" ? 0.0 : Error.Value;
+                        double scale = Math.Pow(10, digits), s = v * scale;
+                        double result = (f.Name == "ROUND" ? Math.Round(s, MidpointRounding.AwayFromZero) : f.Name == "ROUNDUP" ? Math.Sign(s) * Math.Ceiling(Math.Abs(s)) : Math.Truncate(s)) / scale;
+                        return double.IsFinite(result) ? result : Error.Value;
                     }
                 case "LEN": return (double)Text(Arg(0)).Length;
                 case "LEFT": { string t = Text(Arg(0)); int n = (int)(Num(1) ?? 1); return n < 0 ? Error.Value : t[..Math.Min(n, t.Length)]; }
@@ -284,6 +311,13 @@ internal sealed class ConditionFormula
                             foreach (var prefix in new[] { "<=", ">=", "<>", "=", "<", ">" })
                                 if (text.StartsWith(prefix, StringComparison.Ordinal)) { op = prefix; text = text[prefix.Length..]; break; }
                             target = double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out double n) ? n : text;
+                            // Wildcards in text: * any run, ? one character, ~ makes the next one literal; text cells only.
+                            if (target is string pattern && op is "=" or "<>" && pattern.IndexOfAny(['*', '?']) >= 0)
+                            {
+                                var regex = new System.Text.RegularExpressions.Regex("^" + Wildcard(pattern) + "$",
+                                    System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
+                                return (double)range.Count(v => (v is string s && regex.IsMatch(s)) == (op == "="));
+                            }
                         }
                         return (double)range.Count(v =>
                         {
@@ -315,6 +349,18 @@ internal sealed class ConditionFormula
             bool p => p.CompareTo((bool)right!),
             _ => 0
         };
+    }
+
+    private static string Wildcard(string pattern)
+    {
+        var regex = new System.Text.StringBuilder();
+        for (int i = 0; i < pattern.Length; i++)
+        {
+            char c = pattern[i];
+            if (c == '~' && i + 1 < pattern.Length) regex.Append(System.Text.RegularExpressions.Regex.Escape(pattern[++i].ToString()));
+            else regex.Append(c switch { '*' => ".*", '?' => ".", _ => System.Text.RegularExpressions.Regex.Escape(c.ToString()) });
+        }
+        return regex.ToString();
     }
 
     private static bool Truthy(object? v) => v switch { bool b => b, double d => d != 0, _ => false };

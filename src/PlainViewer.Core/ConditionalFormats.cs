@@ -213,12 +213,16 @@ internal sealed class ConditionalFormats(WorkbookStyles? workbook = null)
         int originRow = rule.Origin?[0] ?? (rule.Ranges.Count > 0 ? rule.Ranges[0][0] : 0), originColumn = rule.Origin?[1] ?? (rule.Ranges.Count > 0 ? rule.Ranges[0][1] : 0);
         int RowOf(long key) => (int)(key >> 16);
         int ColumnOf(long key) => (int)(key & 0xFFFF);
+        // A formula whose moving ranges would make it read more than 20 million cells over the rule's cells (for
+        // example =SUM(A1:J10000)>0 over 250,000 cells) is not worked out: the rule stays counted as not shown, and
+        // opening the file stays within the worker's time limit.
+        ConditionFormula? Affordable(string source) => ConditionFormula.Parse(source) is { } f && f.CellsPerCell * cells.Count <= 20_000_000 ? f : null;
         if (rule.Type is "containsText" or "notContainsText" or "beginsWith" or "endsWith" && rule.Text.Length == 0) return null;
         switch (rule.Type)
         {
             case "expression":
                 {
-                    if (rule.Formulas.Count == 0 || ConditionFormula.Parse(rule.Formulas[0]) is not { } formula) return null;
+                    if (rule.Formulas.Count == 0 || Affordable(rule.Formulas[0]) is not { } formula) return null;
                     return When(key => formula.IsTrue(RowOf(key), ColumnOf(key), originRow, originColumn, CellValue));
                 }
             case "cellIs":
@@ -228,7 +232,7 @@ internal sealed class ConditionalFormats(WorkbookStyles? workbook = null)
                     foreach (var source in rule.Formulas)
                     {
                         if (Constant(source) is { } constant) { operands.Add(_ => constant); continue; }
-                        if (ConditionFormula.Parse(source) is not { } formula) return null;
+                        if (Affordable(source) is not { } formula) return null;
                         operands.Add(key => formula.Evaluate(RowOf(key), ColumnOf(key), originRow, originColumn, CellValue) switch
                         {
                             double d => (d, null), string s => (null, s), bool flag => (flag ? 1 : 0, null), null => (0, null), _ => (double.NaN, null)

@@ -4,6 +4,8 @@
 
 - **Excel workbooks protected without a password to open** (structure-protected .xls and .xlsx files, which Excel saves encrypted with a fixed password) now open without asking for a password.
 - A password-protected Word, Excel or PowerPoint file that was changed after it was protected is now refused with a clear message.
+- **Smaller download**: the installer is 368 MB (was 403 MB), and a 166 MB installer without the Microsoft Edge WebView2 Runtime is available for PCs that already have it (Windows 11 normally does).
+- **Fixed** (found by reviewing the new code): charts with nearly equal values or very many points could freeze or blank a workbook; some damaged files could freeze the sheet view or stop the reader instead of showing a clear message; very long or deeply nested conditional formatting formulas could make a workbook fail to open; right-to-left books whose style sheet sets the direction showed only one page, and the last page of a book could not always be reached in a wide window; some saved web pages lost most of their styling; searching Turkish text could highlight the wrong words; book titles were not read from some books.
 - **EPUB books use their own fonts** when they include them.
 - **EPUB books are shown page by page**, like an e-reader, with two pages side by side in a wide window. Turn pages with the arrow keys, Page Up/Down, Space or the mouse wheel; Ctrl+Page Up/Down moves between chapters, and zooming makes the text larger.
 - **Excel binary workbooks (.xlsb)** open: values, saved formula results, number formats, column widths, merged cells and frozen panes.
