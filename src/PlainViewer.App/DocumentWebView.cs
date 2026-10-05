@@ -25,6 +25,8 @@ internal sealed class DocumentWebView : Border
     public int Page { get; private set; }         // PDF page, or 1-based sheet index
     public int Pages { get; private set; }        // PDF page count, or sheet count
     public string SheetName { get; private set; } = "";
+    public int Chapter { get; private set; }      // EPUB books: the chapter at the top of the page, and how many there are
+    public int Chapters { get; private set; }
     public int PictureWidth { get; private set; }  // pixels, for pictures
     public int PictureHeight { get; private set; }
     public int Rotation { get; private set; }      // degrees clockwise, for pictures
@@ -176,11 +178,12 @@ internal sealed class DocumentWebView : Border
             case "loaded":
                 Pages = message.TryGetProperty("pages", out var pages) ? pages.GetInt32() : message.GetProperty("sheets").GetInt32();
                 PageNotice = message.TryGetProperty("notice", out var pageNotice) ? pageNotice.GetString() ?? "" : "";
-                Page = 1;
+                Page = 1; Chapter = Chapters = 0;
                 opening?.TrySetResult(Pages);
                 break;
             case "state":
                 if (message.TryGetProperty("page", out var p)) { Page = p.GetInt32(); Pages = message.GetProperty("pages").GetInt32(); }
+                if (message.TryGetProperty("chapter", out var chapter)) { Chapter = chapter.GetInt32(); Chapters = message.GetProperty("chapters").GetInt32(); }
                 if (message.TryGetProperty("width", out var w)) { PictureWidth = w.GetInt32(); PictureHeight = message.GetProperty("height").GetInt32(); Rotation = message.GetProperty("rotation").GetInt32(); }
                 else if (message.TryGetProperty("sheet", out var sheet)) { Page = sheet.GetInt32(); Pages = message.GetProperty("sheets").GetInt32(); SheetName = message.GetProperty("name").GetString() ?? ""; }
                 Scale = message.GetProperty("scale").GetDouble();
@@ -224,6 +227,7 @@ internal sealed class DocumentWebView : Border
     public void GoToPage(int number) => Post(new { type = "page", number });
     public void Step(int delta) => Post(new { type = "step", delta });
     public void ChangeSheet(int delta) => Post(new { type = "sheet", delta });
+    public void ChangeChapter(int delta) => Post(new { type = "chapter", delta });
     public void Rotate(int delta) => Post(new { type = "rotate", delta });
     public void ShowThumbnails(bool show) => Post(new { type = "thumbnails", show });
     public void SetTheme(bool dark) => Post(new { type = "theme", dark });

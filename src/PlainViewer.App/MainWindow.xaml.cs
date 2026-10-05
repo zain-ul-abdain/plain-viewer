@@ -117,6 +117,34 @@ public partial class MainWindow : Window
                 var (_, total) = await PdfFind("Hello");
                 if (total < 1) throw new InvalidOperationException("Search found no match for 'Hello'.");
             }
+            if (EpubBook)
+            {
+                // Books: turning to the last page, back a chapter, zooming (the book is laid out again) and back to page 1.
+                async Task WaitFor(Func<bool> condition, string failure)
+                {
+                    var reached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    void OnState() { if (condition()) reached.TrySetResult(); }
+                    WebPane.StateChanged += OnState;
+                    try { if (!condition()) await reached.Task.WaitAsync(TimeSpan.FromSeconds(10)); }
+                    catch (TimeoutException) { throw new InvalidOperationException($"{failure} (page {WebPane.Page} of {WebPane.Pages}, chapter {WebPane.Chapter} of {WebPane.Chapters})."); }
+                    finally { WebPane.StateChanged -= OnState; }
+                }
+                await WaitFor(() => WebPane.Chapters >= 1, "The book reported no chapters");
+                WebPane.GoToPage(WebPane.Pages);
+                await WaitFor(() => WebPane.Page == WebPane.Pages, "Going to the last page failed");
+                if (WebPane.Pages > 1)
+                {
+                    int last = WebPane.Page;
+                    WebPane.ChangeChapter(-1);
+                    await WaitFor(() => WebPane.Page < last, "Going back a chapter should move to an earlier page");
+                }
+                if (Environment.GetEnvironmentVariable("PLAINVIEWER_CAPTURE_DIR") is { Length: > 0 } bookCaptures)
+                { Directory.CreateDirectory(bookCaptures); await Task.Delay(500); await WebPane.Capture(Path.Combine(bookCaptures, Path.GetFileName(path) + ".later.png")); }
+                ZoomBy(1);
+                await WaitFor(() => WebPane.Scale > 1 && WebPane.Page >= 1 && WebPane.Page <= WebPane.Pages, "Zooming should lay the book out again");
+                WebPane.GoToPage(1);
+                await WaitFor(() => WebPane.Page == 1 && WebPane.Chapter == 1, "Page 1 should show the first chapter");
+            }
             ZoomBy(1); ZoomBy(0);
             if (Environment.GetEnvironmentVariable("PLAINVIEWER_CAPTURE_DIR") is { Length: > 0 } captures)
             {
@@ -373,7 +401,7 @@ public partial class MainWindow : Window
         PageControls.Visibility = Paginated || picture || Book ? Visibility.Visible : Visibility.Collapsed;
         foreach (var element in new FrameworkElement[] { PreviousPageButton, PageLabel, PageBox, PageCount, NextPageButton })
             element.Visibility = picture ? Visibility.Collapsed : Visibility.Visible;
-        // Books move by chapter; their text reflows, so there is no page to fit.
+        // Books and web archives reflow their text, so there is no page to fit.
         FitWidthButton.Visibility = FitPageButton.Visibility = Book ? Visibility.Collapsed : Visibility.Visible;
         RotateLeftButton.Visibility = RotateRightButton.Visibility = picture ? Visibility.Visible : Visibility.Collapsed;
         // Pictures (and TIFF scans shown as pages) have no text: search is switched off and says why.
@@ -385,8 +413,8 @@ public partial class MainWindow : Window
             ToolTipService.SetShowOnDisabled(control, true);
             System.Windows.Automation.AutomationProperties.SetHelpText(control, noSearch ?? "");
         }
-        PageLabel.Text = document.Kind == "slides" ? "Slide" : Book ? "Chapter" : "Page";
-        System.Windows.Automation.AutomationProperties.SetName(PageBox, document.Kind == "slides" ? "Go to slide number" : Book ? "Go to chapter number" : "Go to page number");
+        PageLabel.Text = document.Kind == "slides" ? "Slide" : Parts ? "Part" : "Page";
+        System.Windows.Automation.AutomationProperties.SetName(PageBox, document.Kind == "slides" ? "Go to slide number" : Parts ? "Go to part number" : "Go to page number");
         // Text encoding and CSV delimiter appear only where they apply (Zain's choice, DECISIONS.md D14): the encoding for
         // text, CSV, Markdown and data files, the delimiter for CSV.
         EncodingChoice.Visibility = web ? Visibility.Collapsed : Visibility.Visible;
@@ -654,8 +682,10 @@ public partial class MainWindow : Window
         WebPane.Visibility = Visibility.Visible;
         await WebPane.LoadWeb(json, IsDarkTheme(), cancellation);
     }
-    // EPUB books: one "chapter" per part of the book's reading order.
-    private bool Book => document?.Kind == "web" && WebPane.Pages > 1;
+    // EPUB books are shown as pages (after 0.9.0); web archives with several parts move by part. Neither has a page to fit.
+    private bool EpubBook => document?.Kind == "web" && document.Encoding == "EPUB book";
+    private bool Parts => document?.Kind == "web" && !EpubBook && WebPane.Pages > 1;
+    private bool Book => EpubBook || Parts;
     private void ShowWebStatus()
     {
         if (document is null || !InWebPane) return;
@@ -678,7 +708,8 @@ public partial class MainWindow : Window
         {
             PageCount.Text = $"of {WebPane.Pages}";
             if (!PageBox.IsKeyboardFocused) PageBox.Text = WebPane.Page.ToString();
-            string where = Book ? $" · {(document.Encoding == "EPUB book" ? "Chapter" : "Part")} {WebPane.Page} of {WebPane.Pages}" : "";
+            string where = EpubBook ? $" · Page {WebPane.Page} of {WebPane.Pages}" + (WebPane.Chapters > 1 ? $" · Chapter {WebPane.Chapter} of {WebPane.Chapters}" : "")
+                : Parts ? $" · Part {WebPane.Page} of {WebPane.Pages}" : "";
             Status.Text = $"Read only · {document.Encoding}{where} · Opened in {openSeconds:F2}s. {document.Notice} {WebPane.PageNotice}".TrimEnd();
         }
         else Status.Text = $"Read only · {document.Encoding} · Sheet {WebPane.Page} of {WebPane.Pages}: {WebPane.SheetName} · Opened in {openSeconds:F2}s. {document.Notice}";
@@ -811,6 +842,7 @@ public partial class MainWindow : Window
         else if (ctrl && (e.Key == Key.D0 || e.Key == Key.NumPad0)) ZoomBy(0);
         else if (e.Key == Key.F3) Find(Keyboard.Modifiers.HasFlag(ModifierKeys.Shift));
         else if (ctrl && e.Key is Key.PageUp or Key.PageDown && document?.Kind == "sheet") WebPane.ChangeSheet(e.Key == Key.PageDown ? 1 : -1);
+        else if (ctrl && e.Key is Key.PageUp or Key.PageDown && EpubBook) WebPane.ChangeChapter(e.Key == Key.PageDown ? 1 : -1);
         else if (ctrl && e.Key == Key.R && document?.Kind == "image") WebPane.Rotate(Keyboard.Modifiers.HasFlag(ModifierKeys.Shift) ? -1 : 1);
         else if (e.Key == Key.F11) { if (WindowStyle == WindowStyle.None) { WindowStyle = WindowStyle.SingleBorderWindow; WindowState = savedState; } else { savedState = WindowState; WindowStyle = WindowStyle.None; WindowState = WindowState.Maximized; } }
         else return;

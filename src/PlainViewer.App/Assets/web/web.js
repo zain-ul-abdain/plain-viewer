@@ -6,6 +6,8 @@
 //    outside the file (pictures, style sheets, imports and url() in styles), counting what it removed;
 // 3. moves the cleaned nodes into a frame sandboxed without scripts, which also inherits this page's content policy.
 // WebView2's request filter blocks anything that still tried to load, and the app counts such attempts.
+// EPUB books (after 0.9.0) are laid out as pages the size of the view, in one or two columns, turned with the keys,
+// the wheel or the app's page controls; web pages and archives scroll.
 const DOC = "https://doc.plainviewer.invalid";
 const host = window.chrome?.webview;
 const post = message => host?.postMessage(message);
@@ -142,10 +144,16 @@ const BASE_STYLE = `
 ::highlight(pv-match) { background-color: #ffe066; color: #000000; }
 ::highlight(pv-current) { background-color: #f29100; color: #000000; }
 @media (forced-colors: active) { ::highlight(pv-match) { background-color: Mark; color: MarkText; } ::highlight(pv-current) { background-color: Highlight; color: HighlightText; } }`;
+// Books: the body's size, padding and columns are set by layout() as inline !important values, so a book's own style
+// sheet cannot move the pages; pictures fit inside one page.
 const BOOK_STYLE = `
-body { margin: 0 auto; max-width: 46em; padding: 24px 32px 64px; font-family: "Segoe UI", sans-serif; line-height: 1.55; color: #1b1b1b; background: #ffffff; overflow-wrap: break-word; }
-img, svg { max-width: 100%; height: auto; }
-.pv-part + .pv-part { border-top: 1px solid #c8c8c8; margin-top: 2.5em; padding-top: 2em; }`;
+body { font-family: "Segoe UI", sans-serif; line-height: 1.55; color: #1b1b1b; background: #ffffff; overflow-wrap: break-word; }
+img { max-width: 100%; max-height: var(--pv-page-height, 90vh); width: auto; height: auto; object-fit: contain; break-inside: avoid; }
+svg { max-width: 100%; max-height: var(--pv-page-height, 90vh); break-inside: avoid; }
+pre { white-space: pre-wrap; }
+table { max-width: 100%; }
+.pv-part + .pv-part { break-before: column; }
+.pv-end { height: 0; margin: 0; padding: 0; }`;
 
 function addStyle(text) {
   const style = frameDoc.createElement("style");
@@ -167,12 +175,22 @@ async function show() {
   for (const { section } of cleaned) frameDoc.body.append(frameDoc.adoptNode(section));
   sections = [...frameDoc.querySelectorAll("section.pv-part")];
   frameDoc.title = content.title || cleaned[0]?.title || "";
+  if (paged()) {
+    end = frameDoc.createElement("div"); end.className = "pv-end"; frameDoc.body.append(end);
+    baseFont = parseFloat(frameWin.getComputedStyle(frameDoc.body).fontSize) || 16;
+    for (const image of frameDoc.images) if (!image.complete) image.addEventListener("load", queueLayout, { once: true });
+    frameDoc.fonts?.ready.then(queueLayout);
+    window.addEventListener("resize", queueLayout);
+    frameDoc.addEventListener("keydown", onPageKey, true);
+    frameDoc.addEventListener("wheel", onWheel, { passive: false, capture: true });
+    layout();
+  }
   frameDoc.addEventListener("click", onClick, true);
   frameDoc.addEventListener("auxclick", event => event.preventDefault(), true);
   frameDoc.addEventListener("keydown", event => { if (event.key === "Enter" && event.target.closest?.(".pv-link")) onClick(event); }, true);
   frameDoc.addEventListener("dragstart", event => event.preventDefault(), true);
-  frameWin.addEventListener("scroll", report, { passive: true });
-  post({ type: "loaded", pages: sections.length, notice: notice(), title: frameDoc.title });
+  frameWin.addEventListener("scroll", onScroll, { passive: true });
+  post({ type: "loaded", pages: paged() ? pageCount : sections.length, notice: notice(), title: frameDoc.title });
   report();
   requestAnimationFrame(() => requestAnimationFrame(() => post({ type: "rendered" })));
 }
@@ -185,17 +203,112 @@ function notice() {
   return notes.join(" ");
 }
 
+// ---- Book pages ----
+
+const paged = () => content?.kind === "book";
+let pageIndex = 0, pageCount = 1, pageWidth = 1, columnsPerPage = 1, end = null, baseFont = 16, layoutQueued = false, wheel = 0, wheelAt = 0;
+
+function setImportant(element, styles) { for (const [name, value] of Object.entries(styles)) element.style.setProperty(name, value, "important"); }
+const clampPage = index => Math.max(0, Math.min(pageCount - 1, index));
+// The page a box starts on (columns of the page sit side by side; each page is one view wide).
+const pageAt = rect => Math.floor((rect.left + frameWin.scrollX + 1) / pageWidth);
+const firstRect = node => (node.nodeType === 1 ? node : node.parentElement)?.getClientRects()[0];
+
+function queueLayout() { if (!layoutQueued) { layoutQueued = true; requestAnimationFrame(layout); } }
+
+// Lays the book out for the view's current size and zoom, keeping the text that was at the top of the page in view.
+function layout() {
+  layoutQueued = false;
+  if (!frameDoc || !end) return;
+  let anchor = null;
+  if (pageIndex > 0) {
+    const pad = parseFloat(frameDoc.body.style.paddingLeft) || 0, top = parseFloat(frameDoc.body.style.paddingTop) || 0;
+    const range = frameDoc.caretRangeFromPoint?.(pad + 2, top + 2);
+    if (range && frameDoc.body.contains(range.startContainer)) anchor = range;
+  }
+  const fraction = pageIndex / Math.max(1, pageCount);
+  const width = frameWin.innerWidth, height = frameWin.innerHeight;
+  const columns = width >= 1000 ? 2 : 1;
+  setImportant(frameDoc.documentElement, { overflow: "hidden", height: "100%", margin: "0", padding: "0" });
+  setImportant(frameDoc.body, { "font-size": `${baseFont * scale}px` });
+  const em = parseFloat(frameWin.getComputedStyle(frameDoc.body).fontSize) || 16;
+  // Lines of about 40 em at most; the space either side of a column is half the gap between columns, so every column
+  // (and every page) starts a fixed distance after the last.
+  const padX = Math.max(28, Math.floor((width / columns - 40 * em) / 2)), padY = 28;
+  setImportant(frameDoc.body, { margin: "0", width: `${width}px`, "max-width": "none", "min-width": "0", height: `${height}px`, "box-sizing": "border-box",
+    padding: `${padY}px ${padX}px`, "column-count": String(columns), "column-gap": `${2 * padX}px`, "column-fill": "auto", overflow: "visible" });
+  frameDoc.documentElement.style.setProperty("--pv-page-height", `${height - 2 * padY}px`);
+  pageWidth = Math.max(1, width); columnsPerPage = columns;
+  frameWin.scrollTo(0, 0);
+  pageCount = Math.max(1, pageAt(end.getBoundingClientRect()) + 1);
+  const rect = anchor ? anchor.getClientRects()[0] ?? firstRect(anchor.startContainer) : null;
+  showPage(rect ? pageAt(rect) : Math.round(fraction * pageCount));
+}
+
+function showPage(index) {
+  pageIndex = clampPage(index);
+  frameWin.scrollTo(pageIndex * pageWidth, 0);
+  report();
+}
+
+// Selecting text by dragging can scroll the page sideways; it always comes back to a whole page.
+function onScroll() {
+  if (!paged()) { report(); return; }
+  if (frameWin.scrollY !== 0 || Math.abs(frameWin.scrollX - pageIndex * pageWidth) > 1) showPage(Math.round(frameWin.scrollX / pageWidth));
+}
+
+function onPageKey(event) {
+  if (event.ctrlKey || event.altKey || event.metaKey) return;
+  const key = event.key;
+  if (["ArrowRight", "ArrowDown", "PageDown"].includes(key) || (key === " " && !event.shiftKey)) showPage(pageIndex + 1);
+  else if (["ArrowLeft", "ArrowUp", "PageUp"].includes(key) || (key === " " && event.shiftKey)) showPage(pageIndex - 1);
+  else if (key === "Home") showPage(0);
+  else if (key === "End") showPage(pageCount - 1);
+  else return;
+  event.preventDefault();
+}
+
+function onWheel(event) {
+  if (event.ctrlKey) return;
+  event.preventDefault();
+  const now = performance.now();
+  if (now - wheelAt < 250) return;
+  wheel += event.deltaY || event.deltaX;
+  if (Math.abs(wheel) >= 40) { showPage(pageIndex + Math.sign(wheel)); wheel = 0; wheelAt = now; }
+}
+
+// The chapter at the top of a page's first column: the last one starting in or before that column.
+function chapterAt(page) {
+  let index = 0;
+  const column = rect => Math.floor((rect.left + frameWin.scrollX + 1) / (pageWidth / columnsPerPage));
+  sections.forEach((section, i) => { const rect = section.getClientRects()[0]; if (rect && column(rect) <= page * columnsPerPage) index = i; });
+  return index;
+}
+
+// Next chapter: the first one starting on a later page; previous: the start of this chapter, or of the one before it,
+// on an earlier page (two short chapters can share a page).
+function chapterStep(delta) {
+  const starts = sections.map(section => section.getClientRects()[0]).filter(Boolean).map(pageAt);
+  if (delta > 0) { const next = starts.find(page => page > pageIndex); if (next !== undefined) showPage(next); }
+  else showPage(starts.filter(page => page < pageIndex).pop() ?? 0);
+}
+
 function current() {
+  if (paged()) return chapterAt(pageIndex);
   let index = 0;
   for (let i = 0; i < sections.length; i++) if (sections[i].getBoundingClientRect().top <= 8) index = i;
   return index;
 }
-function report() { post({ type: "state", page: sections.length ? current() + 1 : 1, pages: Math.max(1, sections.length), scale }); }
+function report() {
+  if (paged()) post({ type: "state", page: pageIndex + 1, pages: pageCount, chapter: current() + 1, chapters: Math.max(1, sections.length), scale });
+  else post({ type: "state", page: sections.length ? current() + 1 : 1, pages: Math.max(1, sections.length), scale });
+}
 
 function goTo(index, id) {
   const section = sections[Math.max(0, Math.min(sections.length - 1, index))];
   if (!section) return;
   const target = id ? [...section.querySelectorAll("[id], a[name]")].find(element => element.id === id || element.getAttribute("name") === id) : null;
+  if (paged()) { const rect = firstRect(target ?? section); if (rect) showPage(pageAt(rect)); return; }
   (target ?? section).scrollIntoView({ block: "start" });
   report();
 }
@@ -217,6 +330,8 @@ function zoom(value) {
   else if (typeof value === "number") scale = value;
   else scale = 1;
   scale = Math.min(3, Math.max(0.5, Math.round(scale * 100) / 100));
+  // Books reflow: the text grows and the pages are laid out again (pictures keep fitting a page).
+  if (paged()) { layout(); return; }
   frameDoc.documentElement.style.zoom = String(scale);
   report();
 }
@@ -246,7 +361,8 @@ function find(query, previous) {
     highlights.set("pv-match", new frameWin.Highlight(...matches));
     highlights.set("pv-current", new frameWin.Highlight(matches[position]));
     const rect = matches[position].getBoundingClientRect();
-    frameWin.scrollBy({ top: rect.top - frameWin.innerHeight / 3 });
+    if (paged()) showPage(pageAt(rect));
+    else frameWin.scrollBy({ top: rect.top - frameWin.innerHeight / 3 });
     const selection = frameWin.getSelection(); selection.removeAllRanges(); selection.addRange(matches[position].cloneRange());
   }
   post({ type: "find", current: matches.length ? position + 1 : 0, total: matches.length, done: true });
@@ -259,8 +375,9 @@ host?.addEventListener("message", event => {
   switch (m.type) {
     case "find": find(String(m.query ?? ""), !!m.previous); break;
     case "zoom": zoom(m.value); break;
-    case "page": goTo(Number(m.number) - 1); break;
-    case "step": goTo(current() + (m.delta < 0 ? -1 : 1)); break;
+    case "page": if (paged()) showPage(Number(m.number) - 1); else goTo(Number(m.number) - 1); break;
+    case "step": if (paged()) showPage(pageIndex + (m.delta < 0 ? -1 : 1)); else goTo(current() + (m.delta < 0 ? -1 : 1)); break;
+    case "chapter": if (paged()) chapterStep(m.delta < 0 ? -1 : 1); else goTo(current() + (m.delta < 0 ? -1 : 1)); break;
     case "theme": document.documentElement.dataset.theme = m.dark ? "dark" : "light"; break;
     case "focus": frameWin.focus(); break;
   }

@@ -5,6 +5,7 @@
 - **Excel workbooks protected without a password to open** (structure-protected .xls and .xlsx files, which Excel saves encrypted with a fixed password) now open without asking for a password.
 - A password-protected Word, Excel or PowerPoint file that was changed after it was protected is now refused with a clear message.
 - **EPUB books use their own fonts** when they include them.
+- **EPUB books are shown page by page**, like an e-reader, with two pages side by side in a wide window. Turn pages with the arrow keys, Page Up/Down, Space or the mouse wheel; Ctrl+Page Up/Down moves between chapters, and zooming makes the text larger.
 - **Excel binary workbooks (.xlsb)** open: values, saved formula results, number formats, column widths, merged cells and frozen panes.
 - **Conditional formatting written as formulas** (such as =$B2>100 or =MOD(ROW(),2)=0) is now shown in .xlsx, .xls and .ods files, worked out from the values saved in the file.
 - **More chart types**: radar, bubble and stock charts, and combined charts such as columns with a line over them.
