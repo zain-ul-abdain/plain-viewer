@@ -101,7 +101,7 @@ Plain Viewer collects no personal data and sends nothing over the network. (The 
 
 - Minimum: Windows 11 (x64), 4 GB of memory, about 1.3 GB of free disk space.
 - Recommended: 8 GB of memory.
-- ARM64 PCs: not tested.
+- ARM64 PCs: not tested (a native ARM64 installer builds, see RELEASING.md).
 
 ## Age rating (IARC questionnaire)
 

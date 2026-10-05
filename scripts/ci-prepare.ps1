@@ -6,6 +6,8 @@
 # - LibreOffice by scripts\fetch-libreoffice.ps1 (SHA-256 published by The Document Foundation);
 # - the WebView2 offline installer by scripts\package.ps1 (valid signature by Microsoft Corporation).
 # The .NET SDK itself comes from actions/setup-dotnet (pinned in the workflow).
+# -Arch arm64 fetches the ARM64 runtime packs, LibreOffice and WebView2 installer instead of the x64 ones.
+param([ValidateSet('x64', 'arm64')][string]$Arch = 'x64')
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 $repoRoot = Split-Path $PSScriptRoot -Parent
@@ -29,6 +31,13 @@ $packages = @(
   @('microsoft.netcore.app.runtime.win-x64', '10.0.12', '0f63dee7ca4383cb16848966f81e439399e2058e1671ebe27e5eaf4b200e8691'),
   @('microsoft.web.webview2', '1.0.4191.47', 'f492bbf547d0da329553b6727435b677579b1e9f91cc9e4a1ad029366d5f23d0'),
   @('microsoft.windowsdesktop.app.runtime.win-x64', '10.0.12', '68bce56d2402969d82ac77fbd2b2a54f55fda86ea060366e6ddb832353dab80a'))
+# ARM64 (5 Oct 2026): checked with `dotnet nuget verify --all` (Microsoft Corporation and nuget.org signatures).
+if ($Arch -eq 'arm64') {
+  $packages = @($packages | Where-Object { $_[0] -notlike '*.runtime.win-x64' }) + @(
+    , @('microsoft.netcore.app.host.win-arm64', '10.0.12', 'f8c171a5278c5a049dc50d97ea1c71778f8a335c2d19be49bb68dbb1dc922966')
+    , @('microsoft.netcore.app.runtime.win-arm64', '10.0.12', 'a684e7ec6acbc2d27dd6926bc11cb12ef1cbe11f1e92f9fbb9553ca7bd00db68')
+    , @('microsoft.windowsdesktop.app.runtime.win-arm64', '10.0.12', '2d20cd8f7f432dec32fb942f68dbff4e059b27c57ad40c845e57f95af6cf9ac8'))
+}
 foreach ($package in $packages) {
   $name, $version, $sha = $package
   Get-Checked "https://api.nuget.org/v3-flatcontainer/$name/$version/$name.$version.nupkg" (Join-Path $feed "$name.$version.nupkg") $sha
@@ -50,11 +59,13 @@ if (-not (Test-Path -LiteralPath (Join-Path $inno 'ISCC.exe'))) {
 }
 
 # 3. LibreOffice, downloaded, verified, unpacked and trimmed.
-& (Join-Path $PSScriptRoot 'fetch-libreoffice.ps1')
+& (Join-Path $PSScriptRoot 'fetch-libreoffice.ps1') -Arch $Arch
 
 # 4. Microsoft's WebView2 offline ("Evergreen Standalone") installer for x64, bundled for PCs without the runtime
 #    (DECISIONS.md D9). This link is the one Microsoft's WebView2 download page gives for it.
 $webView2 = Join-Path $tools 'webview2'
 New-Item -ItemType Directory -Force -Path $webView2 | Out-Null
-Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/?linkid=2124701' -OutFile (Join-Path $webView2 'MicrosoftEdgeWebView2RuntimeInstallerX64.exe') -UseBasicParsing
+# ARM64: linkid=2099616, the ARM64 link on the same page.
+if ($Arch -eq 'arm64') { Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/?linkid=2099616' -OutFile (Join-Path $webView2 'MicrosoftEdgeWebView2RuntimeInstallerARM64.exe') -UseBasicParsing }
+else { Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/?linkid=2124701' -OutFile (Join-Path $webView2 'MicrosoftEdgeWebView2RuntimeInstallerX64.exe') -UseBasicParsing }
 Write-Output 'Build tools ready.'

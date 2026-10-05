@@ -111,7 +111,7 @@ No schema key was found that blocks remote graphics outright. Preferences are th
 3. **Fluent theme.** Check high contrast, 100–300% scaling and every control used.
 4. **Spreadsheet values.** Formulas with and without cached results show the cached value or "Result unavailable"; nothing recalculates.
 5. **Sizes and timings.** Measured 27 Sep 2026 (x64, version 0.1.0): LibreOffice 1,557 MB unpacked, 722 MB after `trim-libreoffice.ps1`; app with .NET included 142 MB; installer 200 MB; installed 869 MB; silent install 40 s including the converter pre-warm (8 s on a fresh profile). Cold/warm first-page times on reference hardware still pending (`scripts/measure.ps1`).
-6. **ARM64.** LibreOffice publishes an ARM64 Windows build [S5] and .NET supports ARM64; untested.
+6. **ARM64.** LibreOffice publishes an ARM64 Windows build [S5] and .NET supports ARM64. Since 5 Oct 2026 a native ARM64 installer builds (`package.ps1 -Arch arm64`, docs/RELEASING.md) but is untested on an ARM64 PC; the x64 installer installs on ARM64 PCs (Inno Setup `x64compatible`) and would run under Windows' x64 emulation, also untested.
 
 ## Pitfalls (from the first draft, still apply)
 

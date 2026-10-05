@@ -1,7 +1,18 @@
 ; Plain Viewer offline installer (Inno Setup 7). Build it with scripts\package.ps1, which passes the defines below.
 ; Per-user install, no administrator rights. Upgrades install over the previous version (same AppId).
 #ifndef AppVersion
-  #error Run scripts\package.ps1: it passes AppVersion, PublishDir, LibreOfficeDir, WebView2Installer and OutputDir.
+  #error Run scripts\package.ps1: it passes AppVersion, PublishDir, LibreOfficeDir, WebView2Installer, OutputDir and Arch.
+#endif
+; x64 (also runs on ARM64 PCs under Windows' x64 emulation) or arm64 (native on ARM64 PCs only).
+#ifndef Arch
+  #define Arch "x64"
+#endif
+#if Arch == "arm64"
+  #define SetupArchitectures "arm64"
+  #define WebView2Name "MicrosoftEdgeWebView2RuntimeInstallerARM64.exe"
+#else
+  #define SetupArchitectures "x64compatible"
+  #define WebView2Name "MicrosoftEdgeWebView2RuntimeInstallerX64.exe"
 #endif
 
 [Setup]
@@ -19,12 +30,12 @@ VersionInfoDescription=Plain Viewer Setup
 DefaultDirName={autopf}\Plain Viewer
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
-ArchitecturesAllowed=x64compatible
-ArchitecturesInstallIn64BitMode=x64compatible
+ArchitecturesAllowed={#SetupArchitectures}
+ArchitecturesInstallIn64BitMode={#SetupArchitectures}
 ; Windows 11. Windows 10 is postponed (DECISIONS.md D13): the app does not start on Windows 10 without recent updates.
 MinVersion=10.0.22000
 OutputDir={#OutputDir}
-OutputBaseFilename=PlainViewer-Setup-{#AppVersion}-x64
+OutputBaseFilename=PlainViewer-Setup-{#AppVersion}-{#Arch}
 Compression=lzma2/max
 SolidCompression=yes
 LZMAUseSeparateProcess=yes
@@ -58,7 +69,7 @@ Type: filesandordirs; Name: "{app}\Assets"
 [Files]
 ; Microsoft's signed offline WebView2 installer (package.ps1 checks the signature). Unpacked only when the runtime
 ; is missing; it is already compressed, and in its own block it unpacks without the rest of the files.
-Source: "{#WebView2Installer}"; DestName: "MicrosoftEdgeWebView2RuntimeInstallerX64.exe"; Flags: dontcopy nocompression solidbreak
+Source: "{#WebView2Installer}"; DestName: "{#WebView2Name}"; Flags: dontcopy nocompression solidbreak
 Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#LibreOfficeDir}\*"; DestDir: "{app}\libreoffice"; Excludes: "__pycache__,*.pyc"; Flags: ignoreversion recursesubdirs createallsubdirs
 
@@ -312,9 +323,9 @@ var
   Detail: String;
 begin
   WizardForm.StatusLabel.Caption := 'Installing the Microsoft Edge WebView2 Runtime...';
-  ExtractTemporaryFile('MicrosoftEdgeWebView2RuntimeInstallerX64.exe');
+  ExtractTemporaryFile('{#WebView2Name}');
   Detail := '';
-  if not Exec(ExpandConstant('{tmp}\MicrosoftEdgeWebView2RuntimeInstallerX64.exe'), '/silent /install', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+  if not Exec(ExpandConstant('{tmp}\{#WebView2Name}'), '/silent /install', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
     Detail := SysErrorMessage(ResultCode)
   else if ResultCode <> 0 then
     Detail := 'error code ' + IntToStr(ResultCode)

@@ -23,6 +23,16 @@ Everything lives under `.tools` (not in Git):
 5. Node.js (for the test corpus generator and the security smoke test's request listener).
 6. Microsoft's WebView2 "Evergreen Standalone Installer" (x64) in `.tools\webview2\MicrosoftEdgeWebView2RuntimeInstallerX64.exe`, from https://developer.microsoft.com/microsoft-edge/webview2 (the download requires accepting Microsoft's WebView2 Runtime licence terms; Zain accepted them and chose to bundle the runtime on 28 Sep 2026). `package.ps1` refuses it unless `Get-AuthenticodeSignature` reports a valid signature by Microsoft Corporation.
 
+## ARM64 installer (built, untested)
+
+`.\scripts\package.ps1 -Arch arm64` builds `artifacts\installer\PlainViewer-Setup-<version>-arm64.exe`, a native ARM64 installer (Inno Setup `ArchitecturesAllowed=arm64`: it refuses x64 PCs). The x64 installer also installs on ARM64 PCs and runs under Windows' x64 emulation. One-time setup, in addition to the x64 items above (Zain approved these downloads on 5 Oct 2026):
+
+- `.tools\feed`: `microsoft.netcore.app.host.win-arm64`, `microsoft.netcore.app.runtime.win-arm64` and `microsoft.windowsdesktop.app.runtime.win-arm64`, version 10.0.12, checked with `dotnet nuget verify --all` (their SHA-256 values are pinned in `scripts/ci-prepare.ps1 -Arch arm64`).
+- `.\scripts\fetch-libreoffice.ps1 -Arch arm64`: LibreOffice's `Win_aarch64` MSI, checked against The Document Foundation's SHA-256, unpacked to `.tools\libreoffice-<version>-arm64` and trimmed. That MSI holds the C++ runtime for both x64 and ARM64 in the same folder (chosen by a condition when installing), so an administrative extract keeps the x64 copies; the script takes the ARM64 copies from the package's cabinet and checks Microsoft's signature, and `trim-libreoffice.ps1` refuses runtime DLLs that do not match `soffice.bin`'s processor (Microsoft's ARM64 set includes an x64 `vcruntime140_1.dll`, which no ARM64 file imports). Windows Installer cannot read a package through a junction (a worktree's `.tools` may be one), so the script works in the junction's target.
+- `.tools\webview2\MicrosoftEdgeWebView2RuntimeInstallerARM64.exe`: https://go.microsoft.com/fwlink/?linkid=2099616 (the ARM64 link on Microsoft's WebView2 page); `package.ps1` checks Microsoft's signature as for x64.
+
+Checked on this x64 PC (5 Oct 2026): every native program and DLL in the published app is ARM64 (PE machine AA64), LibreOffice's programs and C++ runtime are ARM64, the installer builds (393 MB, x64 one 403 MB). **Not tested:** installing or running it, which needs an ARM64 PC. The release workflow still builds x64 only.
+
 ## Making a release
 
 1. Change `<Version>` in `Directory.Build.props` (for example 0.1.0 → 0.1.1 for fixes and security updates, 0.2.0 for new features). The version appears in About, in the installer's name and in Settings > Apps.
@@ -115,4 +125,4 @@ Signed installers show "SignPath Foundation" as the verified publisher. SmartScr
 - **Inno Setup commercial licence.** Inno Setup's licence allows commercial use for free, but since 2025 its authors ask commercial users with annual revenue above USD 5,000 to buy a licence (Single User, Team 2–5 users, Enterprise; one-time payment with two years of updates; price shown at checkout). They state it is not strictly required.
 - **Where to publish.** GitHub Releases (this repository is private, so users could not download from it; a public repository or another host is needed), your own website, winget (needs a public download link) or the Microsoft Store (not tested with LibreOffice inside).
 - **Terms page wording** (`installer/terms.txt`): a draft; review it before the beta. Plain Viewer's own licence is chosen at the public release.
-- **ARM64 installer:** needs the ARM64 LibreOffice build and ARM64 runtime packs (downloads).
+- **ARM64 installer:** builds since 5 Oct 2026 (section "ARM64 installer" above) but is untested: no ARM64 PC is available. Publish it only after a test on one, or label it untested on the release page.
